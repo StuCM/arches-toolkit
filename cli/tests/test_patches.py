@@ -95,3 +95,41 @@ def test_parse_handles_missing_optional_headers() -> None:
     assert h.reason is None
     assert h.days_since_review is None
     assert h.upstream_pr is None
+
+
+def test_next_patch_number_empty(tmp_path: Path) -> None:
+    assert p.next_patch_number(tmp_path) == 1
+
+
+def test_next_patch_number_picks_first_gap(tmp_path: Path) -> None:
+    (tmp_path / "0001-a.patch").write_text("x")
+    (tmp_path / "0003-c.patch").write_text("x")
+    assert p.next_patch_number(tmp_path) == 2
+
+
+def test_inject_headers_appends_when_missing() -> None:
+    bare = (
+        "From abc Mon Sep 17 00:00:00 2001\n"
+        "Subject: [PATCH] add feature\n\nbody text\n\n---\n diff stat\n"
+    )
+    out = p.inject_headers(bare, upstream="none yet", reason="because")
+    parsed = p.parse_text(out)
+    assert parsed.upstream == "none yet"
+    assert parsed.reason == "because"
+    assert parsed.last_reviewed == date.today()
+    # Diff region preserved.
+    assert "diff stat" in out
+
+
+def test_inject_headers_updates_existing_values() -> None:
+    updated = p.inject_headers(
+        SAMPLE_PATCH,
+        upstream="https://github.com/archesproject/arches/pull/99999",
+        reason=None,
+        last_reviewed=date(2030, 1, 1),
+    )
+    parsed = p.parse_text(updated)
+    assert parsed.upstream.endswith("/pull/99999")
+    assert parsed.last_reviewed == date(2030, 1, 1)
+    # reason=None means "leave alone" — original value should stand.
+    assert parsed.reason == "enables non-root containers and read-only root filesystems"

@@ -135,6 +135,60 @@ def parse_all(patches_dir: Path) -> list[PatchHeader]:
     return [parse_file(p) for p in discover(patches_dir)]
 
 
+def next_patch_number(patches_dir: Path) -> int:
+    """Lowest 4-digit prefix not already used by a patch in ``patches_dir``."""
+    used: set[int] = set()
+    for p in discover(patches_dir):
+        m = re.match(r"^(\d+)-", p.name)
+        if m:
+            used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return n
+
+
+def inject_headers(
+    patch_text: str,
+    *,
+    upstream: str | None,
+    last_reviewed: date | None = None,
+    reason: str | None,
+) -> str:
+    """Return ``patch_text`` with header lines inserted or updated.
+
+    Headers go into the commit-message region (before the ``---`` separator).
+    If a header already exists, its value is replaced; otherwise a new line is
+    appended immediately before the blank line that precedes ``---``.
+    """
+    last_reviewed = last_reviewed or date.today()
+    region = _commit_message_region(patch_text)
+    tail = patch_text[len(region):]
+
+    updates = {
+        "upstream": ("Upstream", upstream if upstream is not None else "none yet"),
+        "last_reviewed": ("Last-reviewed", last_reviewed.isoformat()),
+        "reason": ("Reason", reason) if reason is not None else None,
+    }
+
+    for key, pair in list(updates.items()):
+        if pair is None:
+            continue
+        label, value = pair
+        rx = _HEADER_RE[key]
+        new_line = f"{label}: {value}"
+        if rx.search(region):
+            region = rx.sub(new_line, region, count=1)
+            updates[key] = None
+
+    # Append any headers that weren't already present.
+    additions = [f"{label}: {value}" for pair in updates.values() if pair for label, value in [pair]]
+    if additions:
+        region = region.rstrip("\n") + "\n\n" + "\n".join(additions) + "\n"
+
+    return region + tail
+
+
 def renew_last_reviewed(path: Path, today: date | None = None) -> date:
     """Rewrite the ``Last-reviewed:`` line in ``path`` to today.
 
