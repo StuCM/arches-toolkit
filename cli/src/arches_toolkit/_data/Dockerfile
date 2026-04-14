@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
+ARG ARCHES_TOOLKIT_IMAGE=ghcr.io/flaxandteal/arches-toolkit
+ARG ARCHES_TOOLKIT_TAG=latest-arches-stable-8.1.0
+
 FROM node:20-slim AS frontend
 
 WORKDIR /app
@@ -18,10 +21,8 @@ COPY . .
 RUN npm run build
 
 
-ARG ARCHES_TOOLKIT_TAG=latest-arches-stable-8.1.0
-FROM ghcr.io/flaxandteal/arches-toolkit:${ARCHES_TOOLKIT_TAG} AS build
+FROM ${ARCHES_TOOLKIT_IMAGE}:${ARCHES_TOOLKIT_TAG} AS build
 
-ARG ARCHES_TOOLKIT_TAG
 USER root
 WORKDIR /app
 
@@ -66,9 +67,8 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 
 # Re-FROM base to shed build-time state; only /venv and /app carry forward.
-FROM ghcr.io/flaxandteal/arches-toolkit:${ARCHES_TOOLKIT_TAG} AS prod
+FROM ${ARCHES_TOOLKIT_IMAGE}:${ARCHES_TOOLKIT_TAG} AS prod
 
-ARG ARCHES_TOOLKIT_TAG
 ARG PROJECT_NAME
 ARG PROJECT_PACKAGE
 ENV PROJECT_NAME=${PROJECT_NAME} \

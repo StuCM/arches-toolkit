@@ -6,7 +6,13 @@ x-arches: &arches
   image: ${PROJECT_IMAGE:-arches-project}:${PROJECT_TAG:-dev}
   build:
     context: .
+    dockerfile: ${ARCHES_TOOLKIT_DOCKERFILE}
     target: prod
+    args:
+      ARCHES_TOOLKIT_IMAGE: ${ARCHES_TOOLKIT_IMAGE:-ghcr.io/flaxandteal/arches-toolkit}
+      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.0}
+      PROJECT_NAME: ${PROJECT_NAME:?set in project .env}
+      PROJECT_PACKAGE: ${PROJECT_PACKAGE:-${PROJECT_NAME}}
   user: "1000:1000"
   env_file:
     - .env
@@ -43,14 +49,14 @@ x-arches: &arches
 services:
 
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:14-3.4
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
       POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
       POSTGRES_DB: ${PGDBNAME:-arches}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ${ARCHES_TOOLKIT_INIT_SQL}:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-postgres}"]
       interval: 5s

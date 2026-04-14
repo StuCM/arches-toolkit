@@ -1,0 +1,14 @@
+# Included by `arches-toolkit dev` when ARCHES_SRC is set.
+# Bind-mounts a local Arches source tree over the base image's /opt/arches so
+# edits (logs, prints, small patches) show up without rebuilding.
+# Requires the base image to have installed Arches editable (uv pip install -e).
+
+x-arches-src: &arches-src
+  volumes:
+    - ${ARCHES_SRC}:/opt/arches
+
+services:
+  init: { <<: *arches-src }
+  web: { <<: *arches-src }
+  worker: { <<: *arches-src }
+  api: { <<: *arches-src }

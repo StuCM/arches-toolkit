@@ -3,7 +3,13 @@
 x-arches-dev: &arches-dev
   build:
     context: .
+    dockerfile: ${ARCHES_TOOLKIT_DOCKERFILE}
     target: dev
+    args:
+      ARCHES_TOOLKIT_IMAGE: ${ARCHES_TOOLKIT_IMAGE:-ghcr.io/flaxandteal/arches-toolkit}
+      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.0}
+      PROJECT_NAME: ${PROJECT_NAME:?set in project .env}
+      PROJECT_PACKAGE: ${PROJECT_PACKAGE:-${PROJECT_NAME}}
   environment:
     DEBUG: "True"
     PYTHONUNBUFFERED: "1"
