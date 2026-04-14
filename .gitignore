@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv
+.uv-cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scratch work (fork inventory, exploratory notes not for commit)
+/scratch/
+/tmp/
+
+# Build artefacts
+dist/
+build/
+*.whl
+
+# Secrets (belt and braces — no secrets should be in this repo)
+.env
+.env.local
+*.pem
+*.key
+
+# Claude Code session state
+.claude/context/
