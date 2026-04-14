@@ -70,7 +70,7 @@ disturbing the baseline instance.
 # compose.extras.yaml
 services:
   cantaloupe-thumbs:
-    image: islandora/cantaloupe:latest
+    image: uclalibrary/cantaloupe:5.0.3-0
     environment:
       CANTALOUPE_BASE_URI: http://cantaloupe-thumbs:8182
     volumes:

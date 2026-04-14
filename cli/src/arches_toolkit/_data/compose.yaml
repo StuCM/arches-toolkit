@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+    image: elasticsearch:8.4.0
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -96,7 +96,7 @@ services:
     restart: unless-stopped
 
   cantaloupe:
-    image: islandora/cantaloupe:latest
+    image: uclalibrary/cantaloupe:5.0.3-0
     environment:
       CANTALOUPE_BASE_URI: http://cantaloupe:8182
     restart: unless-stopped
@@ -118,13 +118,15 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    # migrate triggers ArchesAppConfig.ready() which writes the
+    # frontend_configuration volume as a side-effect. No explicit call needed.
     command:
       - sh
       - -euxc
       - |
         python manage.py migrate --noinput
+        python manage.py createcachetable
         python manage.py collectstatic --noinput
-        python -c "from arches.apps import generate_frontend_configuration; generate_frontend_configuration()"
 
   web:
     <<: *arches
