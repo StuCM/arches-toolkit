@@ -55,8 +55,18 @@ USER root
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /venv/bin/python debugpy ipython watchfiles
 
+# Node + git for webpack devserver (arches' package.json pulls git-based deps).
+# Only in dev target; prod stays Node-free.
+COPY --from=node:20 /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:20 /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    apt-get update && apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
 # /opt/apps is where sync-apps develop-mode bind mounts land.
-RUN install -d -o app -g app -m 0775 /opt/apps && chown -R app:app /app
+# /app ownership was already set by COPY --chown in `build`; no recursive chown.
+RUN install -d -o app -g app -m 0775 /opt/apps
 
 USER app:app
 WORKDIR /app
