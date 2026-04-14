@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
     uv venv --python /usr/bin/python3.12 /venv; \
     uv pip install --python /venv/bin/python --upgrade pip setuptools wheel; \
-    uv pip install --python /venv/bin/python /opt/arches; \
+    uv pip install --python /venv/bin/python -e /opt/arches; \
     chown -R app:app /venv
 
 VOLUME ["/var/arches/frontend_configuration", \
