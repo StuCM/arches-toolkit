@@ -1,0 +1,141 @@
+name: base-image
+
+# Builds and publishes the arches-toolkit base image to GHCR.
+# Triggers:
+#   - push to main touching docker/base/**
+#   - workflow_dispatch with arches_ref + push inputs
+# Matrix:
+#   - stable/8.1.0 (pinned, the default for projects)
+#   - dev/8.1.x    (floating, early warning of upstream breakage)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/base/**"
+      - ".github/workflows/base-image.yml"
+  workflow_dispatch:
+    inputs:
+      arches_ref:
+        description: "Arches ref (branch, tag, or SHA) to build against"
+        required: false
+        default: "stable/8.1.0"
+        type: string
+      push:
+        description: "Push the resulting image to GHCR"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write     # required for cosign keyless OIDC signing
+  security-events: write  # required to upload Trivy SARIF
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: flaxandteal/arches-toolkit
+
+jobs:
+  build:
+    name: build (${{ matrix.arches_ref }})
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # On workflow_dispatch the user-supplied ref takes precedence; on
+        # push/schedule we sweep both refs. GitHub Actions can't conditionally
+        # set a matrix from inputs cleanly, so we use the full matrix and
+        # filter inside the job when an input is given.
+        arches_ref:
+          - stable/8.1.0
+          - dev/8.1.x
+
+    steps:
+      - name: Skip non-matching ref on workflow_dispatch
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.arches_ref != matrix.arches_ref
+        run: |
+          echo "Dispatch requested ${{ github.event.inputs.arches_ref }}; skipping ${{ matrix.arches_ref }}."
+          exit 0
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute sanitised tag
+        id: tag
+        run: |
+          set -euo pipefail
+          ref='${{ matrix.arches_ref }}'
+          sanitised=$(printf '%s' "${ref}" | tr '/' '-' | tr -c 'A-Za-z0-9._-' '-')
+          short=$(git rev-parse --short HEAD)
+          echo "sanitised=${sanitised}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short}"     >> "$GITHUB_OUTPUT"
+          echo "pinned_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${short}-arches-${sanitised}"   >> "$GITHUB_OUTPUT"
+          echo "floating_tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arches-${sanitised}"   >> "$GITHUB_OUTPUT"
+
+      - name: Build (and push if requested)
+        id: build
+        env:
+          PUBLISH_FLAG: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.push == 'false') && '' || '--publish' }}
+        run: |
+          set -euo pipefail
+          chmod +x docker/base/build.sh
+          docker/base/build.sh \
+            --arches-ref '${{ matrix.arches_ref }}' \
+            --platform linux/amd64 \
+            ${PUBLISH_FLAG}
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.tag.outputs.pinned_tag }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-${{ steps.tag.outputs.sanitised }}
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.tag.outputs.pinned_tag }}
+          format: spdx-json
+          output-file: sbom-${{ steps.tag.outputs.sanitised }}.spdx.json
+          upload-artifact: true
+
+      # TODO: pin cosign-installer + sigstore actions to verified SHAs before
+      # enabling. Leaving as scaffolding so the workflow runs end-to-end now;
+      # signing will be enforced in a follow-up PR. Keyless OIDC signing
+      # against the GHCR image once unblocked:
+      #
+      # - name: Install cosign
+      #   uses: sigstore/cosign-installer@<pinned-sha>
+      # - name: Sign image (keyless)
+      #   env:
+      #     COSIGN_EXPERIMENTAL: "true"
+      #   run: |
+      #     cosign sign --yes ${{ steps.tag.outputs.pinned_tag }}
+      #     cosign sign --yes ${{ steps.tag.outputs.floating_tag }}

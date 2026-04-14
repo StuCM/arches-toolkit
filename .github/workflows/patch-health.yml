@@ -1,0 +1,112 @@
+name: patch-health
+
+# Monthly informational report on the state of patches under
+# docker/base/patches/. Reads the Upstream: and Last-reviewed: headers from
+# each patch, queries the GitHub API for the linked PR's state, and writes a
+# markdown table to the job summary.
+#
+# This workflow NEVER fails the build. Patch staleness or a closed upstream
+# PR is information, not a blocker. Patch renewal is a manual one-liner
+# (`arches-toolkit patch renew <name>`).
+#
+# When patches/ is empty (the current Phase 1 state), the workflow no-ops
+# with a friendly summary.
+
+on:
+  schedule:
+    - cron: "23 5 1 * *"   # 1st of the month, 05:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # GITHUB_TOKEN is sufficient for read-only PR queries against public repos
+  # (e.g. archesproject/arches). No write scopes are required.
+
+jobs:
+  report:
+    name: Patch health report
+    runs-on: ubuntu-24.04
+    # Belt-and-braces: even if every step somehow errored, the job exits 0.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail   # NOT -e: we never want this job to fail.
+
+          PATCH_DIR="docker/base/patches"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          echo "# Patch health report"                >> "$SUMMARY"
+          echo ""                                     >> "$SUMMARY"
+          echo "_Generated $(date -u +%FT%TZ) by \`patch-health.yml\`._" >> "$SUMMARY"
+          echo ""                                     >> "$SUMMARY"
+
+          shopt -s nullglob
+          patches=( "${PATCH_DIR}"/*.patch )
+
+          if [ "${#patches[@]}" -eq 0 ]; then
+            echo "No patches present under \`${PATCH_DIR}\`. Nothing to report."  >> "$SUMMARY"
+            echo ""                                                               >> "$SUMMARY"
+            echo "The first patch is expected to land via Stage 6 of the toolkit plan (\`ARCHES_FRONTEND_CONFIGURATION_DIR\` env var)." >> "$SUMMARY"
+            exit 0
+          fi
+
+          echo "| Patch | Upstream PR | PR state | Last reviewed | Days since review |" >> "$SUMMARY"
+          echo "|---|---|---|---|---|"                                                   >> "$SUMMARY"
+
+          today_epoch=$(date -u +%s)
+
+          for p in "${patches[@]}"; do
+            name=$(basename "$p")
+
+            # Headers live in the patch body (after Subject:). grep -m1 picks
+            # the first occurrence; tolerate missing headers gracefully.
+            upstream=$(grep -m1 -E '^(Upstream:)'    "$p" 2>/dev/null | sed 's/^Upstream:[[:space:]]*//'    || echo "")
+            reviewed=$(grep -m1 -E '^(Last-reviewed:)' "$p" 2>/dev/null | sed 's/^Last-reviewed:[[:space:]]*//' || echo "")
+
+            upstream="${upstream:-_(none)_}"
+            reviewed="${reviewed:-_(missing)_}"
+
+            # Days since review. Best-effort; tolerate unparseable values.
+            if [ "$reviewed" != "_(missing)_" ] && rev_epoch=$(date -u -d "$reviewed" +%s 2>/dev/null); then
+              days=$(( (today_epoch - rev_epoch) / 86400 ))
+            else
+              days="?"
+            fi
+
+            # Probe upstream PR state via the GitHub API. Only act when the
+            # Upstream: header looks like a github.com PR URL.
+            pr_state="_(n/a)_"
+            if [[ "$upstream" =~ ^https://github.com/([^/]+)/([^/]+)/pull/([0-9]+)$ ]]; then
+              owner="${BASH_REMATCH[1]}"
+              repo="${BASH_REMATCH[2]}"
+              num="${BASH_REMATCH[3]}"
+              # gh CLI is preinstalled on ubuntu-24.04 runners and uses GH_TOKEN.
+              if json=$(gh api "repos/${owner}/${repo}/pulls/${num}" 2>/dev/null); then
+                state=$(printf '%s' "$json" | jq -r '.state // "unknown"')
+                merged=$(printf '%s' "$json" | jq -r '.merged // false')
+                if [ "$merged" = "true" ]; then
+                  pr_state="merged"
+                else
+                  pr_state="$state"
+                fi
+              else
+                pr_state="_(api error)_"
+              fi
+            fi
+
+            echo "| \`${name}\` | ${upstream} | ${pr_state} | ${reviewed} | ${days} |" >> "$SUMMARY"
+          done
+
+          echo ""                                                            >> "$SUMMARY"
+          echo "_Informational only — this workflow never fails the build._" >> "$SUMMARY"
+
+          # Always succeed.
+          exit 0
