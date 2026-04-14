@@ -1,28 +1,4 @@
-# docker/project/compose.dev.yaml — development overlay for compose.yaml.
-#
-# Use with: `docker compose -f compose.yaml -f compose.dev.yaml up --watch`
-# (or via `arches-toolkit dev`, which wraps that plus auto-inclusion of
-# compose.apps.yaml and compose.extras.yaml when present).
-#
-# What this overlay changes vs the prod-like baseline:
-# - Builds the project image against `target: dev` (debugpy, dev tools).
-# - Bind-mounts the project source tree at /app so edits are live.
-# - Shares the `venv` named volume across all arches services so that
-#   `docker compose exec web uv sync` updates dependencies everywhere.
-# - Replaces gunicorn with Django's runserver for autoreload + debugging.
-# - Exposes host ports: 8000 (runserver), 9000 (webpack devserver),
-#   5678 (debugpy attach).
-# - Registers `develop.watch` rules so `docker compose up --watch` syncs
-#   source changes into the container without rebuilds, except when
-#   pyproject.toml / uv.lock change (those trigger `rebuild` because they
-#   change the image's base layers).
-#
-# Stage 6 caveat (mirrors compose.yaml): ARCHES_FRONTEND_CONFIGURATION_DIR
-# is declared, but Arches only honours it once the Stage 6 patch lands.
-# Until then, the init service writes to the package's hardcoded path,
-# which means containers run as root in development today. The moment the
-# patch lands, this overlay keeps working unchanged and non-root dev
-# becomes the default.
+# Dev overlay for compose.yaml. Use via `arches-toolkit dev`.
 
 x-arches-dev: &arches-dev
   build:
@@ -50,15 +26,6 @@ x-arches-dev: &arches-dev
           - node_modules/
           - "**/__pycache__/"
           - "**/*.pyc"
-      - action: sync
-        path: ./
-        target: /app
-        include:
-          - "**/*.py"
-          - "**/*.html"
-          - "**/*.css"
-          - "**/*.js"
-          - "**/*.vue"
       - action: rebuild
         path: ./pyproject.toml
       - action: rebuild
@@ -66,10 +33,9 @@ x-arches-dev: &arches-dev
 
 services:
 
+  # init needs rw on frontend_configuration — override the :ro anchor entry.
   init:
     <<: *arches-dev
-    # init needs rw on frontend_configuration; override the :ro from the
-    # anchor for this service only.
     volumes:
       - .:/app
       - venv:/venv

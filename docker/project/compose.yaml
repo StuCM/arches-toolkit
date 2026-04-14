@@ -1,25 +1,6 @@
-# docker/project/compose.yaml — prod-like baseline for local dev.
-#
-# Projects consume this via `arches-toolkit dev` (or `docker compose -f ...`).
-# The dev overlay lives in `compose.dev.yaml`. Project-specific extras can be
-# dropped into `compose.extras.yaml` at the project root (auto-included by the
-# CLI; see `docs/compose-extras.md`).
-#
-# Contract points worth reading before editing:
-# - Project image reference is indirection — projects build their own image
-#   (Stage 3 Dockerfile) with `target: prod` and tag it per the PROJECT_IMAGE
-#   env vars below. The toolkit base layer is consumed by that Dockerfile.
-# - All writable paths live on named volumes, never on the code tree.
-# - All runtime services run as UID 1000.
-# - The `init` service is the single writer for frontend_configuration; web /
-#   worker / api mount it read-only.
-# - NOTE: `ARCHES_FRONTEND_CONFIGURATION_DIR` / `ARCHES_UPLOADED_FILES_DIR` are
-#   reserved env vars. Stage 6 of the toolkit plan lands the Arches patch that
-#   actually honours them. Until that patch ships, Arches still writes to the
-#   hardcoded `frontend_configuration/` path inside the installed package tree.
-#   The non-root runtime story therefore *depends on Stage 6* — the env vars
-#   are declared here so that the wiring is in place the moment the patch
-#   lands, with no compose churn required. Do not try to work around this.
+# Prod-like baseline. Dev overlay in compose.dev.yaml.
+# ARCHES_FRONTEND_CONFIGURATION_DIR is wired here but only honoured once the
+# Stage 6 Arches patch is applied (see docker/base/patches/0001-*.patch).
 
 x-arches: &arches
   image: ${PROJECT_IMAGE:-arches-project}:${PROJECT_TAG:-dev}
@@ -31,7 +12,6 @@ x-arches: &arches
     - .env
   environment:
     DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:?set in project .env}
-    # Stage 6 caveat — see header comment.
     ARCHES_FRONTEND_CONFIGURATION_DIR: /var/arches/frontend_configuration
     ARCHES_UPLOADED_FILES_DIR: /var/arches/uploadedfiles
     PGHOST: db
@@ -63,12 +43,6 @@ x-arches: &arches
 services:
 
   db:
-    # PLAN.md open question #2: if the F&T postgis image does nothing beyond
-    # init.sql, upstream postgis is sufficient. Assumed sufficient here.
-    # The toolkit will ship a canonical init.sql (derived from
-    # arches/install/init-unix.sql with the `CREATE DATABASE template_postgis`
-    # line removed — fork-inventory commit 3522f63d0). Until that file is
-    # committed at docker/project/init.sql, projects can drop their own in.
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
@@ -85,9 +59,6 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    # TODO(verify): Arches 8.1 upstream compose pins a specific 8.x minor.
-    # 8.12.2 is a conservative pick; bump to match whatever upstream Arches
-    # `docker-compose.yml` uses once confirmed.
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
     environment:
       discovery.type: single-node
@@ -119,21 +90,15 @@ services:
     restart: unless-stopped
 
   cantaloupe:
-    # TODO(verify): cantaloupe image source. `islandora/cantaloupe` is the
-    # most widely published community image; the old F&T toolkit may have
-    # used a different one. Confirm with the Arches deployment team before
-    # this lands in a pilot project.
     image: islandora/cantaloupe:latest
     environment:
       CANTALOUPE_BASE_URI: http://cantaloupe:8182
     restart: unless-stopped
 
+  # Single writer for frontend_configuration — overrides the :ro anchor entry.
   init:
     <<: *arches
     restart: "no"
-    # init is the single writer — mount frontend_configuration read-write,
-    # overriding the rw-masked entry inherited from the anchor. All other
-    # services mount it :ro.
     volumes:
       - frontend_configuration:/var/arches/frontend_configuration
       - uploadedfiles:/var/arches/uploadedfiles
