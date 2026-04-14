@@ -1,0 +1,78 @@
+# Build context hygiene for docker/project/Dockerfile.
+#
+# Keeps the build context tight (faster COPY, smaller cache keys, fewer
+# accidental secret leaks). The project's own tree is the build context;
+# adjust in the project repo if additional paths need excluding.
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python build & cache
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.tox
+.coverage
+.coverage.*
+htmlcov
+.venv
+venv
+
+# Node / frontend build artefacts (frontend stage does its own npm ci)
+node_modules
+**/node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Tests and local fixtures (prod image doesn't need them; dev mounts source
+# live anyway, so CI can still reach the tests via the mount).
+tests
+**/tests
+
+# Editor / OS cruft
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Logs and local runtime state
+*.log
+logs/
+uploadedfiles/
+frontend_configuration/
+static_root/
+
+# Secrets & local env — never ship these into an image context
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Agent / toolkit metadata
+.claude/
+.copier-answers.yml
+
+# Docs that don't need to live in the image
+docs
+*.md
+!README.md
+
+# Docker metadata (no recursive builds)
+Dockerfile
+**/Dockerfile
+.dockerignore
+docker-compose*.yml
+docker-compose*.yaml
+compose*.yaml
+compose*.yml
