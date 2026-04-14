@@ -55,8 +55,8 @@ This validates the redesign premise: the F&T divergence was almost entirely inci
 
 ## Action items
 
-- Patches under [../docker/base/patches/](../docker/base/patches/): **none from this inventory**. First patch arrives via Stage 6 (env-var).
-- Upstream PR queue: `3522f63d0` — `archesproject/arches` `arches/install/init-unix.sql`.
+- Patches under [../docker/base/patches/](../docker/base/patches/): **none from this inventory**. The first patch ([`0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch`](../docker/base/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch)) was authored fresh in Stage 6 rather than carried over.
+- Upstream PR queue: `3522f63d0` — `archesproject/arches` `arches/install/init-unix.sql`; plus the Stage 6 env-var patch once it's ready for submission.
 - Fork retirement: once the toolkit ships and the pilot project (Stage 7) migrates, `flaxandteal/arches` `docker/8.1` can be archived.
 
 ## Other branches on the fork

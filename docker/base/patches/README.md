@@ -16,6 +16,10 @@ No expiry field. Staleness is surfaced by the `patch-health` CI job, never by a 
 
 ## Current patches
 
-None yet.
+| File | Subject |
+|---|---|
+| `0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch` | Parameterise the `generate_frontend_configuration()` output directory via `ARCHES_FRONTEND_CONFIGURATION_DIR`, so containers can relocate that runtime-writable path onto a volume and run non-root with a read-only root filesystem. |
 
-The fork inventory ([../../../docs/fork-inventory.md](../../../docs/fork-inventory.md)) concluded that zero patches carry forward from the existing F&T fork. The first patch arrives via Stage 6 ([../../../TASKS.md](../../../TASKS.md)): `ARCHES_FRONTEND_CONFIGURATION_DIR` env var support, to allow the frontend configuration output path to move off the code tree onto a writable volume.
+See `arches-toolkit patch list` for the live table including `Last-reviewed` ages and upstream PR state.
+
+The fork inventory ([../../../docs/fork-inventory.md](../../../docs/fork-inventory.md)) concluded that zero patches carry forward from the existing F&T fork; this is the first *new* patch, created as the Stage 6 proof-of-concept for the patch workflow.
