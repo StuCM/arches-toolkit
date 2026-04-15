@@ -9,6 +9,7 @@ import typer
 from . import __version__
 from .commands import add_app as add_app_cmd
 from .commands import dev as dev_cmd
+from .commands import init as init_cmd
 from .commands import patch as patch_cmd
 from .commands import sync_apps as sync_apps_cmd
 
@@ -47,6 +48,7 @@ def _root(
 
 
 # Top-level commands.
+app.command("init", help="Scaffold a new Arches project ready for `arches-toolkit dev`")(init_cmd.init)
 app.command("add-app", help="Add an Arches application to apps.yaml")(add_app_cmd.add_app)
 app.command("sync-apps", help="Apply apps.yaml changes to pyproject.toml + compose.apps.yaml")(
     sync_apps_cmd.sync_apps
