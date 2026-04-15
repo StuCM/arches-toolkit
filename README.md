@@ -154,6 +154,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit restart [service…]` | `docker compose restart` wrapper |
 | `arches-toolkit down [-v]` | `docker compose down` wrapper (`-v` wipes volumes) |
 | `arches-toolkit build` | `docker compose build` (no start) |
+| `arches-toolkit manage <cmd…>` | Run `python manage.py <cmd…>` inside the web container |
 | `arches-toolkit patch start/finish/list/renew/status` | Maintain the Arches patch series |
 
 ## What's left before this replaces the old toolkit

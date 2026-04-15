@@ -122,3 +122,16 @@ def build(
     """Build project images (``docker compose build``). No services start."""
     _require_project(project_root)
     _run_compose(project_root, ["build", *ctx.args])
+
+
+def manage(
+    ctx: typer.Context,
+    service: str = typer.Option(
+        "web", "--service",
+        help="Service whose python/manage.py to run (default: web)",
+    ),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Run a Django management command (``python manage.py …``) inside ``web``."""
+    _require_project(project_root)
+    _run_compose(project_root, ["exec", service, "python", "manage.py", *ctx.args])

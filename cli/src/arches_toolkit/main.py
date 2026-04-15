@@ -73,6 +73,7 @@ app.command("exec", help="Exec a command in a running service", context_settings
 app.command("restart", help="Restart services (`docker compose restart`)", context_settings=_passthrough)(compose_wrappers.restart)
 app.command("down", help="Stop and remove project containers", context_settings=_passthrough)(compose_wrappers.down)
 app.command("build", help="Build project images without starting", context_settings=_passthrough)(compose_wrappers.build)
+app.command("manage", help="Run `python manage.py …` inside the web container", context_settings=_passthrough)(compose_wrappers.manage)
 
 # patch group.
 app.add_typer(patch_cmd.app, name="patch")
