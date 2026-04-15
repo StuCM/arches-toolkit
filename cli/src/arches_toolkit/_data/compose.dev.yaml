@@ -14,6 +14,10 @@ x-arches-dev: &arches-dev
     DEBUG: "True"
     PYTHONUNBUFFERED: "1"
     PYTHONDONTWRITEBYTECODE: "1"
+    # Dev override: keep frontend_configuration in the bind-mounted source tree
+    # so TypeScript (tsconfig.json, hardcoded path) can read it. Prod still
+    # uses /var/arches/frontend_configuration via the base compose.yaml value.
+    ARCHES_FRONTEND_CONFIGURATION_DIR: /app/frontend_configuration
   volumes:
     - .:/app
     - venv:/venv
