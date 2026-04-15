@@ -73,10 +73,9 @@ services:
 
   webpack:
     <<: *arches-dev
-    volumes:
-      - .:/app
-      - venv:/venv
-      - frontend_configuration:/app/frontend_configuration:ro
+    environment:
+      DEBUG: "True"
+      ARCHES_FRONTEND_CONFIGURATION_DIR: /var/arches/frontend_configuration
     command:
       - sh
       - -euxc

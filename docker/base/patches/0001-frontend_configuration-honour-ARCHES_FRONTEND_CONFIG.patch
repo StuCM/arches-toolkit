@@ -1,4 +1,4 @@
-From 0e930b2ba0f7d034cd0090dd07f864bb07e4b8c6 Mon Sep 17 00:00:00 2001
+From e00d816973e2deed4353f85d2f1cffac355f7cc8 Mon Sep 17 00:00:00 2001
 From: arches-toolkit <toolkit@flaxandteal.co.uk>
 Date: Tue, 14 Apr 2026 22:11:01 +0100
 Subject: [PATCH] frontend_configuration: honour
@@ -33,7 +33,9 @@ Reason: Let ARCHES_FRONTEND_CONFIGURATION_DIR relocate the runtime-writable
   non-root with read-only root filesystems in Kubernetes.
 ---
  .../generate_frontend_configuration.py        | 52 +++++++++++++++----
- 1 file changed, 43 insertions(+), 9 deletions(-)
+ .../webpack/webpack.common.js                 |  5 +-
+ webpack/webpack.common.js                     |  5 +-
+ 3 files changed, 51 insertions(+), 11 deletions(-)
 
 diff --git a/arches/app/utils/frontend_configuration_utils/generate_frontend_configuration.py b/arches/app/utils/frontend_configuration_utils/generate_frontend_configuration.py
 index e44af05..7a67061 100644
@@ -130,6 +132,46 @@ index e44af05..7a67061 100644
      except Exception as e:
          # Ensures error message is shown if error encountered
          sys.stderr.write(str(e))
+diff --git a/arches/install/arches-templates/webpack/webpack.common.js b/arches/install/arches-templates/webpack/webpack.common.js
+index 1d2cc11..ccfe619 100644
+--- a/arches/install/arches-templates/webpack/webpack.common.js
++++ b/arches/install/arches-templates/webpack/webpack.common.js
+@@ -11,11 +11,14 @@ const { VueLoaderPlugin } = require("vue-loader");
+ 
+ const { buildFilepathLookup } = require('./webpack-utils/build-filepath-lookup');
+ 
++const FRONTEND_CONFIGURATION_DIR = process.env.ARCHES_FRONTEND_CONFIGURATION_DIR
++    || Path.join(__dirname, "..", "frontend_configuration");
++
+ module.exports = () => {
+     return new Promise((resolve, _reject) => {
+         // BEGIN get data from `webpack-metadata.json`
+ 
+-        const rawData = fs.readFileSync(Path.join(__dirname, "..", "frontend_configuration", 'webpack-metadata.json'), 'utf-8');
++        const rawData = fs.readFileSync(Path.join(FRONTEND_CONFIGURATION_DIR, 'webpack-metadata.json'), 'utf-8');
+         const parsedData = JSON.parse(rawData);
+ 
+         console.log('Data imported from webpack-metadata.json:', parsedData);
+diff --git a/webpack/webpack.common.js b/webpack/webpack.common.js
+index 1d2cc11..ccfe619 100644
+--- a/webpack/webpack.common.js
++++ b/webpack/webpack.common.js
+@@ -11,11 +11,14 @@ const { VueLoaderPlugin } = require("vue-loader");
+ 
+ const { buildFilepathLookup } = require('./webpack-utils/build-filepath-lookup');
+ 
++const FRONTEND_CONFIGURATION_DIR = process.env.ARCHES_FRONTEND_CONFIGURATION_DIR
++    || Path.join(__dirname, "..", "frontend_configuration");
++
+ module.exports = () => {
+     return new Promise((resolve, _reject) => {
+         // BEGIN get data from `webpack-metadata.json`
+ 
+-        const rawData = fs.readFileSync(Path.join(__dirname, "..", "frontend_configuration", 'webpack-metadata.json'), 'utf-8');
++        const rawData = fs.readFileSync(Path.join(FRONTEND_CONFIGURATION_DIR, 'webpack-metadata.json'), 'utf-8');
+         const parsedData = JSON.parse(rawData);
+ 
+         console.log('Data imported from webpack-metadata.json:', parsedData);
 -- 
 2.43.0
 
