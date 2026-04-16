@@ -77,9 +77,6 @@ services:
 
   webpack:
     <<: *arches-dev
-    environment:
-      DEBUG: "True"
-      ARCHES_FRONTEND_CONFIGURATION_DIR: /var/arches/frontend_configuration
     command:
       - sh
       - -euxc
