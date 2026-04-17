@@ -48,12 +48,28 @@ services:
     # Skip collectstatic in dev: runserver serves STATICFILES_DIRS directly and
     # webpack-dev-server serves bundles on :9000. collectstatic races webpack's
     # HMR rewrites of hashed bundles and crashes init.
+    # Warm-start fast path: probe django_migrations via psycopg2 (sub-second)
+    # and skip Django boot entirely if the schema is already applied.
     command:
       - sh
-      - -euxc
+      - -euc
       - |
-        python manage.py migrate --noinput
-        python manage.py createcachetable
+        PROBE='
+        import os, sys, psycopg2
+        try:
+            c = psycopg2.connect(host=os.environ["PGHOST"], port=int(os.environ.get("PGPORT","5432")), user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"], dbname=os.environ["PGDBNAME"])
+            cur = c.cursor()
+            cur.execute("SELECT 1 FROM django_migrations LIMIT 1")
+            sys.exit(0 if cur.fetchone() else 1)
+        except Exception:
+            sys.exit(1)
+        '
+        if python -c "$PROBE" 2>/dev/null; then
+          echo "init: db already initialized, skipping migrate/createcachetable"
+        else
+          python manage.py migrate --noinput
+          python manage.py createcachetable
+        fi
 
   cantaloupe:
     ports:
