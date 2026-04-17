@@ -97,13 +97,8 @@ services:
 
   cantaloupe:
     image: uclalibrary/cantaloupe:5.0.3-0
-    environment:
-      CANTALOUPE_BASE_URI: ${CANTALOUPE_BASE_URI:-http://cantaloupe:8182}
-      CANTALOUPE_SOURCE_STATIC: FilesystemSource
-      CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
-      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /var/arches/uploadedfiles/
     volumes:
-      - uploadedfiles:/var/arches/uploadedfiles:ro
+      - uploadedfiles:/imageroot:ro
     restart: unless-stopped
 
   # Single writer for frontend_configuration — overrides the :ro anchor entry.
