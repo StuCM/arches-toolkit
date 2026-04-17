@@ -27,11 +27,11 @@ arches-toolkit init mything          # scaffolds via arches-admin + writes .env,
 cd mything
 arches-toolkit dev --build           # first run: builds project image, starts stack
                                      # (watch: http://localhost:8000)
-arches-toolkit bootstrap             # ONE-TIME: setup_db, ES indexes, system-settings resource
+arches-toolkit setup-db              # ONE-TIME: setup_db, ES indexes, system-settings resource
                                      # → /settings/ now works, /search/ now works
 ```
 
-After that, stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build`, no bootstrap — their work is persisted in volumes).
+After that, stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build`, no setup-db — their work is persisted in volumes).
 
 ### Daily development
 
@@ -145,7 +145,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 |---|---|
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
 | `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
-| `arches-toolkit bootstrap` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings |
+| `arches-toolkit setup-db` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml` + `compose.apps.yaml` from `apps.yaml` |
 | `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |

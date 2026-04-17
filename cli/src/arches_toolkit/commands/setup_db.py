@@ -1,4 +1,4 @@
-"""``arches-toolkit bootstrap`` — one-time DB + ES + system-settings setup.
+"""``arches-toolkit setup-db`` — one-time DB + ES + system-settings setup.
 
 Runs ``python manage.py setup_db --force`` inside the running ``web`` service.
 This is **destructive**: it drops and rebuilds the database, deletes and
@@ -30,7 +30,7 @@ def _package_data_path(name: str) -> Path:
     return p
 
 
-def bootstrap(
+def setup_db(
     project_root: Path = typer.Option(
         Path("."), "--project-root",
         help="Project root containing .env (default: cwd)",
