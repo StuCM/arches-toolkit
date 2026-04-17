@@ -43,6 +43,19 @@ x-arches-dev: &arches-dev
 
 services:
 
+  # Dev-only postgres tuning: trades durability for speed. Do NOT use in prod.
+  db:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+
   init:
     <<: *arches-dev
     # Skip collectstatic in dev: runserver serves STATICFILES_DIRS directly and
