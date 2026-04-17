@@ -43,17 +43,22 @@ x-arches-dev: &arches-dev
 
 services:
 
-  # init needs rw on frontend_configuration — override the :ro anchor entry.
   init:
     <<: *arches-dev
-    volumes:
-      - .:/app
-      - venv:/venv
-      - frontend_configuration:/var/arches/frontend_configuration
-      - uploadedfiles:/var/arches/uploadedfiles
-      - static_root:/var/arches/static_root
-      - logs:/var/arches/logs
+    # Skip collectstatic in dev: runserver serves STATICFILES_DIRS directly and
+    # webpack-dev-server serves bundles on :9000. collectstatic races webpack's
+    # HMR rewrites of hashed bundles and crashes init.
+    command:
+      - sh
+      - -euxc
+      - |
+        python manage.py migrate --noinput
+        python manage.py createcachetable
 
+  cantaloupe:
+    ports:
+      - "8182:8182"
+      
   web:
     <<: *arches-dev
     command:

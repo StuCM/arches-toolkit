@@ -28,7 +28,7 @@ x-arches: &arches
     ESHOST: elasticsearch
     ESPORT: "9200"
     RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672//
-    CANTALOUPE_URL: http://cantaloupe:8182
+    CANTALOUPE_HTTP_ENDPOINT: ${CANTALOUPE_HTTP_ENDPOINT:-http://cantaloupe:8182/}
   depends_on:
     db:
       condition: service_healthy
@@ -98,7 +98,12 @@ services:
   cantaloupe:
     image: uclalibrary/cantaloupe:5.0.3-0
     environment:
-      CANTALOUPE_BASE_URI: http://cantaloupe:8182
+      CANTALOUPE_BASE_URI: ${CANTALOUPE_BASE_URI:-http://cantaloupe:8182}
+      CANTALOUPE_SOURCE_STATIC: FilesystemSource
+      CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /var/arches/uploadedfiles/
+    volumes:
+      - uploadedfiles:/var/arches/uploadedfiles:ro
     restart: unless-stopped
 
   # Single writer for frontend_configuration — overrides the :ro anchor entry.
