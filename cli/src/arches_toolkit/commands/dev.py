@@ -74,7 +74,6 @@ def dev(
     argv = _compose_argv(project_root, compose_files, list(ctx.args), build=build)
     env = os.environ.copy()
     env["ARCHES_TOOLKIT_DOCKERFILE"] = str(dockerfile)
-    env["ARCHES_TOOLKIT_INIT_SQL"] = str(_package_data_path("init.sql"))
 
     typer.echo(f"+ ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
     typer.echo(f"+ {' '.join(argv)}")

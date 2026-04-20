@@ -70,7 +70,6 @@ def setup_db(
             raise typer.Exit(1)
 
     dockerfile = _package_data_path("Dockerfile")
-    init_sql = _package_data_path("init.sql")
     compose_files = [_package_data_path(name) for name in BASELINE]
 
     setup_db_args = ["python", "manage.py", "setup_db", "--force"]
@@ -84,7 +83,6 @@ def setup_db(
 
     env = os.environ.copy()
     env["ARCHES_TOOLKIT_DOCKERFILE"] = str(dockerfile)
-    env["ARCHES_TOOLKIT_INIT_SQL"] = str(init_sql)
 
     typer.echo(f"+ {' '.join(argv)}")
     completed = subprocess.run(argv, env=env)

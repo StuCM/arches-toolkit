@@ -43,7 +43,6 @@ def _compose_base_argv(project_root: Path) -> list[str]:
 def _compose_env() -> dict[str, str]:
     env = os.environ.copy()
     env["ARCHES_TOOLKIT_DOCKERFILE"] = str(_package_data_path("Dockerfile"))
-    env["ARCHES_TOOLKIT_INIT_SQL"] = str(_package_data_path("init.sql"))
     return env
 
 
