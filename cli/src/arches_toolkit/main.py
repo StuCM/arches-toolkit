@@ -11,6 +11,7 @@ from .commands import add_app as add_app_cmd
 from .commands import compose_wrappers
 from .commands import dev as dev_cmd
 from .commands import init as init_cmd
+from .commands import migrate as migrate_cmd
 from .commands import patch as patch_cmd
 from .commands import setup_db as setup_db_cmd
 from .commands import sync_apps as sync_apps_cmd
@@ -51,6 +52,10 @@ def _root(
 
 # Top-level commands.
 app.command("init", help="Scaffold a new Arches project ready for `arches-toolkit dev`")(init_cmd.init)
+app.command(
+    "migrate",
+    help="Convert an existing Arches project to arches-toolkit shape",
+)(migrate_cmd.migrate)
 app.command(
     "setup-db",
     help="One-time setup_db: drop+rebuild project DB, ES indexes, system settings",
