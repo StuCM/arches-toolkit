@@ -35,13 +35,19 @@ GENERATED_HEADER = (
 )
 
 
+def _canonical_name(name: str) -> str:
+    """PEP 503 canonical form: lower-cased, runs of -_./ collapsed to a single -."""
+    import re
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def _release_dep_spec(entry: AppEntry) -> str:
     """Render a PEP 508 dependency string for a release-mode entry."""
     if entry.source == "git":
-        # Git deps in pyproject.toml dependencies require a marker form;
-        # tomlkit will write it, but uv needs ``[tool.uv.sources]`` for full
-        # support. We emit the bare package and let the user wire the source.
-        return entry.package
+        url = f"git+{entry.repo}"
+        if entry.ref:
+            url = f"{url}@{entry.ref}"
+        return f"{entry.package} @ {url}"
     if entry.version:
         spec = entry.version.strip()
         if spec[:1] in {"=", ">", "<", "~", "!", "^"}:
@@ -121,28 +127,24 @@ def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
     doc = tomlkit.parse(original_text)
 
     deps = _project_deps_array(doc)
-    previously_managed = set(_read_managed(doc))
-    desired_specs = {entry.package: _release_dep_spec(entry) for entry in release_apps}
+    previously_managed = {_canonical_name(n) for n in _read_managed(doc)}
+    desired_specs = {
+        _canonical_name(entry.package): _release_dep_spec(entry) for entry in release_apps
+    }
     desired_names = set(desired_specs)
 
     # Build a fresh list, preserving non-managed items in original order.
+    # Drop both previously-managed entries and any hand-added entries that
+    # collide (under canonical-name comparison) with a desired managed entry.
     kept: list[str] = []
-    seen_managed: set[str] = set()
     for spec in list(deps):
         spec_str = str(spec).strip()
-        name = _dep_package_name(spec_str)
-        if name in previously_managed:
-            # Drop — we'll re-add the desired form below.
-            seen_managed.add(name)
-            continue
-        if name in desired_names:
-            # User had already added this by hand; replace with the managed
-            # form to keep version specs consistent.
-            seen_managed.add(name)
+        name = _canonical_name(_dep_package_name(spec_str))
+        if name in previously_managed or name in desired_names:
             continue
         kept.append(spec_str)
 
-    # Append desired specs deterministically (sorted by package name).
+    # Append desired specs deterministically (sorted by canonical name).
     for name in sorted(desired_names):
         kept.append(desired_specs[name])
 
@@ -154,7 +156,7 @@ def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
         new_deps.multiline(True)
     doc["project"]["dependencies"] = new_deps
 
-    _write_managed(doc, sorted(desired_names))
+    _write_managed(doc, sorted({entry.package for entry in release_apps}))
 
     new_text = tomlkit.dumps(doc)
     if new_text == original_text:
