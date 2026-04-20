@@ -1,0 +1,114 @@
+{{- if .Values.tiers.worker.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arches.fullname" . }}-worker
+  labels:
+    tier: worker
+    {{- include "arches.labels" . | nindent 4 }}
+spec:
+  replicas: {{ default .Values.replicaCount .Values.workerReplicaCount }}
+  selector:
+    matchLabels:
+      tier: worker
+      {{- include "arches.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        tier: worker
+        {{- include "arches.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/configmap-env: {{ include (print $.Template.BasePath "/configmap-env.yaml") . | sha256sum }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      serviceAccountName: {{ include "arches.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: {{ .Chart.Name }}-migrations
+          envFrom:
+          - configMapRef:
+              name: {{ template "arches.fullname" . }}-env
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ default .Values.image.repository .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resourcesWorker | nindent 12 }}
+          command: ['../entrypoint.sh', 'run_migrations']
+          env:
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: {{ default .Values.postgresqlPasswordKey "postgres-password" }}
+                name: {{ printf "%s-postgresql" .Release.Name }}
+          - name: COUCHDB_PASS
+            value: "UNSET"
+            #valueFrom:
+            #  secretKeyRef:
+            #    key: adminPassword
+            #    name: {{ printf "%s-couchdb" .Release.Name }}
+          - name: CELERY_BROKER_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
+          {{- range $env, $value := .Values.secretEnv }}
+          - name: {{ $env }}
+            valueFrom:
+              secretKeyRef:
+                key: {{ $env }}
+                name: {{ template "arches.fullname" $ }}-env
+          {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          envFrom:
+          - configMapRef:
+              name: {{ template "arches.fullname" . }}-env
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resourcesWorker | nindent 12 }}
+          command: ['../entrypoint.sh', 'run_celery']
+          env:
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: {{ default .Values.postgresqlPasswordKey "postgres-password" }}
+                name: {{ printf "%s-postgresql" .Release.Name }}
+          - name: COUCHDB_PASS
+            value: "UNSET"
+            #valueFrom:
+            #  secretKeyRef:
+            #    key: adminPassword
+            #    name: {{ printf "%s-couchdb" .Release.Name }}
+          - name: CELERY_BROKER_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
+          {{- range $env, $value := .Values.secretEnv }}
+          - name: {{ $env }}
+            valueFrom:
+              secretKeyRef:
+                key: {{ $env }}
+                name: {{ template "arches.fullname" $ }}-env
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}
