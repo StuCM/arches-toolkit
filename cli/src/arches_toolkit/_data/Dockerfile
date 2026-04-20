@@ -26,6 +26,10 @@ FROM ${ARCHES_TOOLKIT_IMAGE}:${ARCHES_TOOLKIT_TAG} AS build
 USER root
 WORKDIR /app
 
+# git is needed by uv for any ``package @ git+...`` dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app uv.lock* README.md* ./
 
