@@ -23,6 +23,12 @@ data:
   DJANGO_MODE: "PROD"
   {{- end }}
   DJANGO_SETTINGS_MODULE: "{{ .Values.archesProject }}.settings"
+  # Toolkit-image contract: gunicorn / celery entry points.
+  WSGI_APP: "{{ .Values.archesProject }}.wsgi:application"
+  CELERY_APP: "{{ .Values.archesProject }}.celery"
+  # Toolkit-image contract: writable-path env vars (Stage 6 patch).
+  ARCHES_FRONTEND_CONFIGURATION_DIR: /var/arches/frontend_configuration
+  ARCHES_UPLOADED_FILES_DIR: /var/arches/uploadedfiles
   DOMAIN_NAMES: {{ .Values.domainNames }}
   ESHOST: elasticsearch-master
   ESPORT: "9200"
@@ -34,6 +40,9 @@ data:
   PGDBNAME: arches
   PGHOST: {{ printf "%s-postgresql" .Release.Name }}
   PGPORT: "5432"
+  # PGUSER is the toolkit-image name; PGUSERNAME kept for any lingering
+  # references in project settings.py / legacy code.
+  PGUSER: postgres
   PGUSERNAME: postgres
   PYTHONUNBUFFERED: "0"
   TZ: PST

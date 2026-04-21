@@ -26,6 +26,43 @@ spec:
       serviceAccountName: {{ include "arches.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: {{ .Chart.Name }}-init
+          envFrom:
+          - configMapRef:
+              name: {{ template "arches.fullname" . }}-env
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -euxc
+            - |
+              python manage.py migrate --noinput
+              python manage.py createcachetable
+              python manage.py collectstatic --noinput
+          env:
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: {{ default .Values.postgresqlPasswordKey "postgres-password" }}
+                name: {{ printf "%s-postgresql" .Release.Name }}
+          - name: CELERY_BROKER_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
+          - name: RABBITMQ_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
+          volumeMounts:
+          - name: frontend-configuration
+            mountPath: /var/arches/frontend_configuration
+          - name: uploadedfiles
+            mountPath: /var/arches/uploadedfiles
       containers:
         - name: {{ .Chart.Name }}
           envFrom:
@@ -35,7 +72,16 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ['../entrypoint.sh', 'run_arches']
+          command:
+            - sh
+            - -euxc
+            - exec gunicorn --bind 0.0.0.0:8000 --workers {{ .Values.gunicornWorkers | default 1 }} "${WSGI_APP}"
+          volumeMounts:
+          - name: frontend-configuration
+            mountPath: /var/arches/frontend_configuration
+            readOnly: true
+          - name: uploadedfiles
+            mountPath: /var/arches/uploadedfiles
           ports:
             - name: http
               containerPort: 8000
@@ -69,6 +115,11 @@ spec:
               secretKeyRef:
                 key: celery-broker-url
                 name: {{ template "arches.fullname" $ }}
+          - name: RABBITMQ_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
           {{- range $env, $value := .Values.secretEnv }}
           - name: {{ $env }}
             valueFrom:
@@ -76,6 +127,16 @@ spec:
                 key: {{ $env }}
                 name: {{ template "arches.fullname" $ }}-env
           {{- end }}
+      volumes:
+      - name: frontend-configuration
+        emptyDir: {}
+      - name: uploadedfiles
+      {{- if .Values.persistence.uploadedfiles.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default (printf "%s-uploadedfiles" (include "arches.fullname" .)) .Values.persistence.uploadedfiles.existingClaim }}
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

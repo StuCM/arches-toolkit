@@ -10,11 +10,18 @@ global:
     postgresqlPassword: postgres # RMV
     postgresqlDatabase: postgres
 
+env: {}
 secretEnv: {}
 
 replicaCount: 1
 workerReplicaCount: 1
 staticReplicaCount: 1
+
+# Gunicorn worker processes inside a single web/api pod. Different from
+# replicaCount (number of pods). More gunicorn workers = more concurrent
+# request handling in the same pod, at the cost of ~200-500MB extra memory
+# per worker. For prod with real traffic, 2-4 is typical.
+gunicornWorkers: 1
 
 image:
   repository: ghcr.io/flaxandteal/arches-base
@@ -127,6 +134,19 @@ tiers:
     enabled: true
   worker:
     enabled: true
+
+# Uploaded-files volume. Off by default — uploads live in each pod's
+# emptyDir (lost on pod restart). Enable for prod with user content.
+# Requires a ReadWriteMany-capable storage class (azurefile, efs-sc, etc.)
+# since web/worker/api all mount it.
+persistence:
+  uploadedfiles:
+    enabled: false
+    accessModes:
+      - ReadWriteMany
+    size: 10Gi
+    storageClass: ""
+    existingClaim: ""
 
 serviceAccount:
   # Specifies whether a service account should be created

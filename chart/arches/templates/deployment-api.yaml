@@ -36,10 +36,13 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ default .Values.image.repository .Values.api.image.repository }}:{{ default .Chart.AppVersion .Values.api.image.tag | default .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ['../entrypoint.sh', 'run_api']
+          command:
+            - sh
+            - -euxc
+            - exec gunicorn --bind 0.0.0.0:8001 --workers {{ .Values.gunicornWorkers | default 1 }} "${WSGI_APP}"
           ports:
             - name: http
-              containerPort: 8000
+              containerPort: 8001
               protocol: TCP
           #livenessProbe:
           #  httpGet:
@@ -53,8 +56,13 @@ spec:
           #    port: http
           #  timeoutSeconds: 5
           #  initialDelaySeconds: {{ .Values.api.readinessProbe.initialDelaySeconds }}
-          {{- if or .Values.mappingJsonConfigMap .Values.mappingJson }}
           volumeMounts:
+          - name: frontend-configuration
+            mountPath: /var/arches/frontend_configuration
+            readOnly: true
+          - name: uploadedfiles
+            mountPath: /var/arches/uploadedfiles
+          {{- if or .Values.mappingJsonConfigMap .Values.mappingJson }}
           - name: mapping-file
             mountPath: "/data_root"
             readOnly: true
@@ -82,6 +90,11 @@ spec:
               secretKeyRef:
                 key: celery-broker-url
                 name: {{ template "arches.fullname" $ }}
+          - name: RABBITMQ_URL
+            valueFrom:
+              secretKeyRef:
+                key: celery-broker-url
+                name: {{ template "arches.fullname" $ }}
           {{- range $env, $value := .Values.secretEnv }}
           - name: {{ $env }}
             valueFrom:
@@ -101,15 +114,23 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
     {{- end }}
-    {{- if .Values.mappingJsonConfigMap }}
       volumes:
+      - name: frontend-configuration
+        emptyDir: {}
+      - name: uploadedfiles
+      {{- if .Values.persistence.uploadedfiles.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default (printf "%s-uploadedfiles" (include "arches.fullname" .)) .Values.persistence.uploadedfiles.existingClaim }}
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
+      {{- if .Values.mappingJsonConfigMap }}
       - name: mapping-file
         configMap:
           name: {{ .Values.mappingJsonConfigMap }}
-    {{- else if .Values.mappingJson }}
-      volumes:
+      {{- else if .Values.mappingJson }}
       - name: mapping-file
         configMap:
           name: {{ template "arches.fullname" $ }}-mapping
-    {{- end }}
+      {{- end }}
 {{- end }}

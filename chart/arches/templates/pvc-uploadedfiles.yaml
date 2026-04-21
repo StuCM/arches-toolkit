@@ -1,0 +1,17 @@
+{{- if and .Values.persistence.uploadedfiles.enabled (not .Values.persistence.uploadedfiles.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "arches.fullname" . }}-uploadedfiles
+  labels:
+    {{- include "arches.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.uploadedfiles.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.uploadedfiles.size | quote }}
+  {{- with .Values.persistence.uploadedfiles.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
