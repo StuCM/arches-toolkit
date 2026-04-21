@@ -1,0 +1,10 @@
+define([
+    "knockout",
+    "viewmodels/card-component",
+    "templates/views/components/cards/${name}.htm",
+], function (ko, CardComponentViewModel, cardTemplate) {
+    return ko.components.register("${name}-card", {
+        viewModel: CardComponentViewModel,
+        template: cardTemplate,
+    });
+});

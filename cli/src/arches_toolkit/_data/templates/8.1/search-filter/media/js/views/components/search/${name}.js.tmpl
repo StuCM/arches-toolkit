@@ -1,0 +1,15 @@
+define([
+    "knockout",
+    "views/components/search/base-filter",
+    "templates/views/components/search/${name}.htm",
+], function (ko, BaseFilter, filterTemplate) {
+    const viewModel = BaseFilter.extend({
+        initialize: function (options) {
+            BaseFilter.prototype.initialize.call(this, options);
+        },
+    });
+    return ko.components.register("${name}-filter", {
+        viewModel: viewModel,
+        template: filterTemplate,
+    });
+});

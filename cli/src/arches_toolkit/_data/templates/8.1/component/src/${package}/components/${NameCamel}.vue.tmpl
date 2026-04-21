@@ -1,0 +1,16 @@
+<script setup lang="ts">
+import { ref } from "vue";
+
+defineProps<{
+    label?: string;
+}>();
+
+const clicks = ref(0);
+</script>
+
+<template>
+    <div class="component-${name}">
+        <p v-if="label">{{ label }}</p>
+        <button @click="clicks++">clicks: {{ clicks }}</button>
+    </div>
+</template>

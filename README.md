@@ -88,6 +88,30 @@ arches-toolkit add-app arches-her --source pypi --version "~=2.0"
 arches-toolkit sync-apps             # writes pyproject.toml deps + compose.apps.yaml
 ```
 
+## Scaffolding artifacts
+
+`arches-toolkit create` stamps out the files you'd otherwise copy from another
+project. Templates are version-scoped (Arches 7.6 and 8.1 ship today) and
+register commands are echoed for you to run — never executed automatically.
+
+```bash
+arches-toolkit create widget my_widget --datatype string
+arches-toolkit create card-component my_card
+arches-toolkit create plugin my_plugin --slug my-plugin --icon "fa fa-star"
+arches-toolkit create report my_report
+arches-toolkit create function my_fn --type node
+arches-toolkit create datatype my_type
+arches-toolkit create search-filter my_filter --type filter
+arches-toolkit create component my_component
+arches-toolkit create app demo --path ../
+```
+
+By default files land in the current project. Use `--app <dir>` to target an
+existing `arches-<name>` application package instead. Pass `--knockout` on
+widget / card-component / plugin / function to also emit the legacy KO shim
+alongside the Vue3 primary. See [docs/create.md](docs/create.md) for the full
+reference.
+
 ## What lives where
 
 | Location | Contents |
@@ -144,6 +168,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | Command | Description |
 |---|---|
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
+| `arches-toolkit create <kind> <name>` | Scaffold a widget / plugin / component / app / etc. (see [docs/create.md](docs/create.md)) |
 | `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
 | `arches-toolkit setup-db` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |

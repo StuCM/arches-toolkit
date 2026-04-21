@@ -1,0 +1,6 @@
+<!-- Knockout shim for card component ${name} -->
+<div class="card-${name}">
+    <!-- ko foreach: widgets -->
+    <div data-bind="component: { name: widget.component, params: $data }"></div>
+    <!-- /ko -->
+</div>

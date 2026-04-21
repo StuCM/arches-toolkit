@@ -1,0 +1,12 @@
+define([
+    "knockout",
+    "templates/views/components/plugins/${name}.htm",
+], function (ko, pluginTemplate) {
+    const viewModel = function () {
+        this.title = ko.observable("${name}");
+    };
+    return ko.components.register("${name}", {
+        viewModel: viewModel,
+        template: pluginTemplate,
+    });
+});

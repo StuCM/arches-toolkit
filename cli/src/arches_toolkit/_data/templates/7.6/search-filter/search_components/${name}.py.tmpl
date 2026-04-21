@@ -1,0 +1,22 @@
+"""Search filter ${name}."""
+
+from arches.app.search.components.base import BaseSearchFilter
+
+
+details = {
+    "searchcomponentid": "${uuid}",
+    "name": "${name}",
+    "icon": "fa fa-search",
+    "modulename": "${name}.py",
+    "classname": "${class_name}",
+    "type": "${filter_type}",
+    "componentpath": "views/components/search/${name}",
+    "componentname": "${name}",
+    "sortorder": 0,
+    "enabled": True,
+}
+
+
+class ${class_name}(BaseSearchFilter):
+    def append_dsl(self, search_results_object, permitted_nodegroups, include_provisional):
+        return

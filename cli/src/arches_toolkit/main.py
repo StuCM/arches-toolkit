@@ -9,6 +9,7 @@ import typer
 from . import __version__
 from .commands import add_app as add_app_cmd
 from .commands import compose_wrappers
+from .commands import create as create_cmd
 from .commands import dev as dev_cmd
 from .commands import init as init_cmd
 from .commands import patch as patch_cmd
@@ -74,6 +75,9 @@ app.command("restart", help="Restart services (`docker compose restart`)", conte
 app.command("down", help="Stop and remove project containers", context_settings=_passthrough)(compose_wrappers.down)
 app.command("build", help="Build project images without starting", context_settings=_passthrough)(compose_wrappers.build)
 app.command("manage", help="Run `python manage.py …` inside the web container", context_settings=_passthrough)(compose_wrappers.manage)
+
+# create group.
+app.add_typer(create_cmd.app, name="create")
 
 # patch group.
 app.add_typer(patch_cmd.app, name="patch")

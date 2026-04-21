@@ -1,0 +1,11 @@
+define([
+    "knockout",
+    "templates/views/components/functions/${name}.htm",
+], function (ko, functionTemplate) {
+    return ko.components.register("${name}-function", {
+        viewModel: function (params) {
+            Object.assign(this, params);
+        },
+        template: functionTemplate,
+    });
+});
