@@ -9,6 +9,7 @@ is orchestration.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -66,12 +67,57 @@ class Context:
     legacy_docker: Optional[Path] = None
     legacy_makefile: Optional[Path] = None
     root_dockerfile: Optional[Path] = None
+    stale_artefacts: list[Path] = field(default_factory=list)
+    non_user_owned_sample: Optional[Path] = None
     has_env: bool = False
     has_apps_yaml: bool = False
 
 
+# Generated/build directories produced by the pre-toolkit workflow. Left in
+# place after migrate they surface inside the new containers via the `.:/app`
+# bind mount, often with root ownership from the old Docker tooling — which
+# then breaks any container service that tries to write to them (webpack's
+# node_modules, arches' frontend_configuration, collectstatic, logs).
+# NOT listed: uploadedfiles/ (user data — never auto-delete).
+STALE_ARTEFACT_NAMES = (
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "frontend_configuration",
+    "static_root",
+    "logs",
+)
+
+
 def _canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _find_non_user_owned(target: Path, excluded: set[Path]) -> Optional[Path]:
+    """First path under target not owned by the current user, or None.
+
+    Used to flag legacy-Docker root-owned files (bundle outputs, pycache, etc.)
+    that would otherwise trigger EACCES when dev-stack services try to rewrite
+    them. Prunes excluded subtrees (``.git/`` and everything in stale_artefacts,
+    which we're about to delete anyway).
+    """
+    my_uid = os.getuid()
+
+    def _is_excluded(p: Path) -> bool:
+        return p in excluded or any(e in p.parents for e in excluded)
+
+    for root, dirs, files in os.walk(target):
+        root_path = Path(root)
+        dirs[:] = [d for d in dirs if not _is_excluded(root_path / d)]
+        for name in files:
+            fp = root_path / name
+            try:
+                if fp.stat().st_uid != my_uid:
+                    return fp
+            except OSError:
+                continue
+    return None
 
 
 def _is_external_arches_module(module: str) -> bool:
@@ -198,6 +244,15 @@ def _detect(target: Path) -> Context:
     legacy_makefile = target / "Makefile"
     root_dockerfile = target / "Dockerfile"
 
+    stale_artefacts = [target / n for n in STALE_ARTEFACT_NAMES if (target / n).exists()]
+
+    # Exclude .git and paths slated for removal from the ownership sweep — no
+    # point flagging files we're about to delete.
+    ownership_excluded = {target / ".git", *stale_artefacts}
+    if legacy_docker.is_dir():
+        ownership_excluded.add(legacy_docker)
+    non_user_owned_sample = _find_non_user_owned(target, ownership_excluded)
+
     return Context(
         target=target,
         package=package,
@@ -206,12 +261,20 @@ def _detect(target: Path) -> Context:
         legacy_docker=legacy_docker if legacy_docker.is_dir() else None,
         legacy_makefile=legacy_makefile if legacy_makefile.is_file() else None,
         root_dockerfile=root_dockerfile if root_dockerfile.is_file() else None,
+        stale_artefacts=stale_artefacts,
+        non_user_owned_sample=non_user_owned_sample,
         has_env=(target / ".env").exists(),
         has_apps_yaml=(target / "apps.yaml").exists(),
     )
 
 
-def _print_plan(ctx: Context, *, keep_docker: bool, keep_makefile: bool) -> None:
+def _print_plan(
+    ctx: Context,
+    *,
+    keep_docker: bool,
+    keep_makefile: bool,
+    keep_build_artefacts: bool,
+) -> None:
     typer.echo("")
     typer.echo(f"Target:   {ctx.target}")
     typer.echo(f"Package:  {ctx.package}")
@@ -232,6 +295,13 @@ def _print_plan(ctx: Context, *, keep_docker: bool, keep_makefile: bool) -> None
         warnings.append(
             f"found {ctx.root_dockerfile.name} at repo root — toolkit ships its own Dockerfile; "
             "review whether yours is still needed (not touched by migrate)"
+        )
+    if ctx.non_user_owned_sample is not None:
+        rel = ctx.non_user_owned_sample.relative_to(ctx.target)
+        warnings.append(
+            f"files under target not owned by your user (e.g. {rel}) — likely root-owned from "
+            "legacy Docker tooling. These will trip up dev containers (EACCES). Fix command "
+            "printed at end of migration."
         )
     if warnings:
         typer.echo("Warnings:")
@@ -258,13 +328,22 @@ def _print_plan(ctx: Context, *, keep_docker: bool, keep_makefile: bool) -> None
         removals.append("docker/")
     if ctx.legacy_makefile is not None and not keep_makefile:
         removals.append("Makefile")
+    if ctx.stale_artefacts and not keep_build_artefacts:
+        for p in ctx.stale_artefacts:
+            removals.append(f"{p.name}/")
     if removals:
         typer.echo("Files to remove:")
         for f in removals:
             typer.echo(f"  - {f}")
 
 
-def _execute(ctx: Context, *, keep_docker: bool, keep_makefile: bool) -> None:
+def _execute(
+    ctx: Context,
+    *,
+    keep_docker: bool,
+    keep_makefile: bool,
+    keep_build_artefacts: bool,
+) -> None:
     typer.echo("")
     typer.echo(init_cmd._patch_settings(ctx.settings_path))
     typer.echo(
@@ -304,9 +383,43 @@ def _execute(ctx: Context, *, keep_docker: bool, keep_makefile: bool) -> None:
     if ctx.legacy_makefile is not None and not keep_makefile:
         ctx.legacy_makefile.unlink()
         typer.echo(f"removed {ctx.legacy_makefile.name}")
+    if not keep_build_artefacts:
+        for p in ctx.stale_artefacts:
+            try:
+                shutil.rmtree(p)
+                typer.echo(f"removed {p.name}/")
+            except PermissionError:
+                typer.echo(
+                    f"! could not remove {p.name}/ (permission denied — "
+                    f"likely owned by root from legacy Docker tooling). "
+                    f"Run: sudo rm -rf {p}"
+                )
 
 
 def _print_next_steps(ctx: Context) -> None:
+    typer.echo("")
+    # Re-detect ownership post-execute: _execute may have deleted the sample
+    # file (if it lived inside a stale artefact) or others may remain.
+    ownership_excluded = {ctx.target / ".git"}
+    remaining = _find_non_user_owned(ctx.target, ownership_excluded)
+    if remaining is not None:
+        typer.echo("")
+        typer.echo(
+            "Files owned by another user (likely root, from legacy Docker tooling) "
+            "remain under the project tree. Dev containers run as uid 1000 and will "
+            "hit EACCES on these. Before `arches-toolkit dev`, run:"
+        )
+        typer.echo("")
+        typer.echo(
+            "  sudo find . -not -path './.git/*' ! -user $(id -u) "
+            "-exec chown 1000:1000 {} +"
+        )
+        typer.echo("")
+        typer.echo(
+            "  (if your host uid is 1000, `chown $USER:$USER` is equivalent and "
+            "keeps you as owner.)"
+        )
+
     typer.echo("")
     typer.echo("Done. Next:")
     typer.echo("  arches-toolkit dev --build       # first build")
@@ -332,6 +445,11 @@ def migrate(
     keep_makefile: bool = typer.Option(
         False, "--keep-makefile", help="Don't remove the project-root Makefile",
     ),
+    keep_build_artefacts: bool = typer.Option(
+        False, "--keep-build-artefacts",
+        help="Don't remove stale generated dirs (node_modules/, .venv/, venv/, "
+             "dist/, frontend_configuration/, static_root/, logs/) from the legacy toolchain",
+    ),
 ) -> None:
     """Convert an existing Arches project to arches-toolkit shape."""
     target = target_dir.resolve()
@@ -345,12 +463,19 @@ def migrate(
         and ctx.has_env
         and ctx.legacy_docker is None
         and ctx.legacy_makefile is None
+        and (keep_build_artefacts or not ctx.stale_artefacts)
+        and ctx.non_user_owned_sample is None
     )
     if already:
         typer.echo(f"{target}: already migrated (apps.yaml + .env present, no legacy docker/ or Makefile).")
         return
 
-    _print_plan(ctx, keep_docker=keep_docker, keep_makefile=keep_makefile)
+    _print_plan(
+        ctx,
+        keep_docker=keep_docker,
+        keep_makefile=keep_makefile,
+        keep_build_artefacts=keep_build_artefacts,
+    )
 
     if dry_run:
         return
@@ -360,5 +485,10 @@ def migrate(
         if not typer.confirm("Proceed?", default=False):
             raise typer.Exit(1)
 
-    _execute(ctx, keep_docker=keep_docker, keep_makefile=keep_makefile)
+    _execute(
+        ctx,
+        keep_docker=keep_docker,
+        keep_makefile=keep_makefile,
+        keep_build_artefacts=keep_build_artefacts,
+    )
     _print_next_steps(ctx)

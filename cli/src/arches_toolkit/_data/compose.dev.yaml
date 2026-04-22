@@ -21,6 +21,10 @@ x-arches-dev: &arches-dev
   volumes:
     - .:/app
     - venv:/venv
+    # Shadow the host's node_modules: webpack writes here as uid 1000; any
+    # stale host-side tree (e.g. left over from pre-toolkit tooling run as
+    # root) never reaches the container.
+    - node_modules:/app/node_modules
     - frontend_configuration:/var/arches/frontend_configuration:ro
     - uploadedfiles:/var/arches/uploadedfiles
     - static_root:/var/arches/static_root
@@ -111,16 +115,26 @@ services:
 
   webpack:
     <<: *arches-dev
+    # Run as root so we can chown the freshly-created node_modules volume
+    # (Docker initialises named volumes as root:root); then drop to `app` for
+    # the actual install/serve. node_modules is a mount point — no `rm -rf`.
+    user: "0:0"
     command:
       - sh
       - -euxc
       - |
-        if [ ! -f node_modules/.arches-toolkit-install-stamp ]; then
-          rm -rf node_modules
-          npm install --no-audit --no-fund
-          touch node_modules/.arches-toolkit-install-stamp
-        fi
-        npm run start
+        chown -R app:app /app/node_modules
+        exec su app -s /bin/sh -c '
+          cd /app
+          if [ ! -f node_modules/.arches-toolkit-install-stamp ]; then
+            npm install --no-audit --no-fund
+            touch node_modules/.arches-toolkit-install-stamp
+          fi
+          exec npm run start
+        '
     ports:
       - "9000:9000"
     restart: unless-stopped
+
+volumes:
+  node_modules:

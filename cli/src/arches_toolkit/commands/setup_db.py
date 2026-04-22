@@ -1,6 +1,10 @@
 """``arches-toolkit setup-db`` — one-time DB + ES + system-settings setup.
 
-Runs ``python manage.py setup_db --force`` inside the running ``web`` service.
+Runs ``python manage.py setup_db --force`` in a one-shot ``docker compose
+run --rm`` container (not an exec into a running web service). This means
+setup-db works even when web is crashing on startup — exactly the state
+you're most likely to be in when the DB schema is missing.
+
 This is **destructive**: it drops and rebuilds the database, deletes and
 re-creates Elasticsearch indexes, then loads Arches' default system-settings
 graph and data so ``/settings/`` works.
@@ -46,7 +50,7 @@ def setup_db(
     ),
     service: str = typer.Option(
         "web", "--service",
-        help="Compose service to exec setup_db inside (default: web)",
+        help="Compose service whose config is used to run setup_db (default: web)",
     ),
 ) -> None:
     """One-time setup_db --force: drops the project's DB and rebuilds it.
@@ -79,7 +83,11 @@ def setup_db(
     argv = ["docker", "compose", "--project-directory", str(project_root)]
     for f in compose_files:
         argv += ["-f", str(f)]
-    argv += ["exec", service, *setup_db_args]
+    # `run --rm` spawns a fresh one-shot container rather than exec'ing into a
+    # running one — works whether web is up, crashing, or not yet started.
+    # --no-deps: don't start db/es/rabbitmq just because web's config depends
+    # on them; they're already up (or should be) from a prior `dev` invocation.
+    argv += ["run", "--rm", "--no-deps", service, *setup_db_args]
 
     env = os.environ.copy()
     env["ARCHES_TOOLKIT_DOCKERFILE"] = str(dockerfile)
