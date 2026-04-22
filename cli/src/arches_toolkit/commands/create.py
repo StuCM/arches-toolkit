@@ -13,8 +13,10 @@ from typing import Optional
 
 import typer
 
+from .. import apps_manifest as manifest_mod
 from .. import scaffold
 from .._util import validate_name
+from ..apps_manifest import AppEntry
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -327,15 +329,26 @@ def component(
 
 @app.command("app", help="Scaffold a new arches-<name> pip-installable application")
 def app_cmd(
-    name: str = typer.Argument(..., help="App name — the 'foo' in arches-foo (snake_case)"),
+    name: str = typer.Argument(
+        ..., help="App name — the 'foo' in arches-foo (snake_case or kebab-case)"
+    ),
     path: Optional[Path] = typer.Option(
         None, "--path", help="Parent dir to create arches-<name>/ under (default: cwd)"
     ),
     arches_version: Optional[str] = typer.Option(
         None, "--arches-version", help="Arches major.minor for template selection"
     ),
+    register: bool = typer.Option(
+        True,
+        "--register/--no-register",
+        help="Auto-register the new app in cwd's apps.yaml (if present) as mode: develop",
+    ),
     force: bool = _opt_force(),
 ) -> None:
+    # Accept both `file-upload-3d` (PyPI dist style) and `file_upload_3d`
+    # (Python package style). Normalise to underscores so the validator and
+    # everything downstream (token derivation, package name) sees one form.
+    name = name.replace("-", "_")
     validate_name(name, what="app name")
     parent = (path or Path.cwd()).resolve()
     parent.mkdir(parents=True, exist_ok=True)
@@ -368,14 +381,44 @@ def app_cmd(
         raise typer.BadParameter(str(exc)) from None
     _echo_written(written)
 
-    typer.echo("")
-    typer.echo("Next:")
     try:
         rel_root = app_root.relative_to(Path.cwd())
     except ValueError:
         rel_root = app_root
-    typer.echo(f"  pip install -e {rel_root}")
-    typer.echo(
-        f"  arches-toolkit add-app arches-{name.replace('_', '-')} "
-        f"--source path --path {rel_root}"
-    )
+
+    pkg_name = f"arches-{name.replace('_', '-')}"
+    manifest_path = Path.cwd() / "apps.yaml"
+    registered = False
+
+    if register and manifest_path.exists():
+        manifest = manifest_mod.load(manifest_path)
+        entry = AppEntry(
+            package=pkg_name,
+            source="pypi",
+            mode="develop",
+        )
+        action, _ = manifest.upsert(entry)
+        manifest_mod.save(manifest, manifest_path)
+        typer.echo("")
+        typer.echo(f"apps.yaml: {action} {pkg_name} (mode: develop)")
+        registered = True
+
+    typer.echo("")
+    typer.echo("Next:")
+    if registered:
+        typer.echo("  arches-toolkit sync-apps          # propagate apps.yaml → compose.apps.yaml")
+        typer.echo(
+            "  arches-toolkit dev --build        # rebuild so the new app is picked up"
+        )
+    else:
+        typer.echo(f"  pip install -e {rel_root}")
+        if manifest_path.exists():
+            typer.echo(
+                f"  arches-toolkit add-app {pkg_name} --mode develop   "
+                "# --no-register was set; register manually"
+            )
+        else:
+            typer.echo(
+                f"  # no apps.yaml in {Path.cwd()} — if this app is for a toolkit "
+                "project, cd there first and run `arches-toolkit add-app`."
+            )
