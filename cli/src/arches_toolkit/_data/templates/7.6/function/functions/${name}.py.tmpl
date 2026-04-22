@@ -1,0 +1,25 @@
+"""Resource function ${name}."""
+
+from arches.app.functions.base import BaseFunction
+
+
+details = {
+    "functionid": "${uuid}",
+    "name": "${name}",
+    "functiontype": "${function_type}",
+    "description": "TODO: describe ${name}",
+    "defaultconfig": {},
+    "classname": "${class_name}",
+    "component": "views/components/functions/${name}",
+}
+
+
+class ${class_name}(BaseFunction):
+    def get(self):
+        raise NotImplementedError
+
+    def save(self, tile, request, context=None):
+        return
+
+    def delete(self, tile, request):
+        return

@@ -1,0 +1,10 @@
+define([
+    "knockout",
+    "viewmodels/report",
+    "templates/views/components/reports/${name}.htm",
+], function (ko, ReportViewModel, reportTemplate) {
+    return ko.components.register("${name}-report", {
+        viewModel: ReportViewModel,
+        template: reportTemplate,
+    });
+});

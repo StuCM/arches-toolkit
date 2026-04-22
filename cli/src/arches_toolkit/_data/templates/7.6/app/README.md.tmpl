@@ -1,0 +1,12 @@
+# arches-${name}
+
+Arches application package.
+
+## Install into a project
+
+```bash
+pip install -e /path/to/arches-${name}
+arches-toolkit add-app arches-${name} --source path --path /path/to/arches-${name}
+arches-toolkit sync-apps
+arches-toolkit exec web python manage.py packages -o load_package -s /path/to/arches-${name}/arches_${name}/pkg -y
+```

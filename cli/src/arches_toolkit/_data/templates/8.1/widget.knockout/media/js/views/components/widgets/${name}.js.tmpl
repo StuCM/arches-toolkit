@@ -1,0 +1,16 @@
+define([
+    "knockout",
+    "viewmodels/widget",
+    "templates/views/components/widgets/${name}.htm",
+], function (ko, WidgetViewModel, widgetTemplate) {
+    const viewModel = function (params) {
+        params.configKeys = ["label", "placeholder", "defaultValue"];
+        WidgetViewModel.apply(this, [params]);
+        this.label = ko.observable(this.config().label || "");
+        this.placeholder = ko.observable(this.config().placeholder || "");
+    };
+    return ko.components.register("${name}-widget", {
+        viewModel: viewModel,
+        template: widgetTemplate,
+    });
+});

@@ -1,0 +1,13 @@
+<script setup lang="ts">
+defineProps<{
+    card: Record<string, unknown>;
+    tile: Record<string, unknown> | null;
+}>();
+</script>
+
+<template>
+    <section class="card-${name}">
+        <h3>{{ card.name }}</h3>
+        <!-- TODO: render widgets for ${name} -->
+    </section>
+</template>

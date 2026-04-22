@@ -1,0 +1,5 @@
+/** Typed HTTP client for arches-${name}. Extend as the app grows. */
+export async function ping(): Promise<{ ok: boolean }> {
+    const r = await fetch("/arches-${name}/");
+    return { ok: r.ok };
+}

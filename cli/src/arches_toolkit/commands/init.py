@@ -12,16 +12,15 @@ import. The owner can edit anything afterwards without fighting an import.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
-from importlib import resources
 from pathlib import Path
 from typing import Optional
 
 import typer
 
-PACKAGE_DATA = "arches_toolkit._data"
+from .._util import package_data_path as _package_data_path
+from .._util import validate_name as _validate_name
 
 # Marker comment so re-running init is idempotent and human-greppable.
 SETTINGS_MARKER = "# arches-toolkit:env-overrides"
@@ -86,22 +85,6 @@ GITIGNORE_LINES = [
     "venv/",
     ".pytest_cache/",
 ]
-
-
-def _validate_name(name: str) -> str:
-    if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
-        raise typer.BadParameter(
-            f"project name {name!r} must start with a lowercase letter and contain "
-            "only lowercase letters, digits, and underscores"
-        )
-    return name
-
-
-def _package_data_path(name: str) -> Path:
-    p = Path(str(resources.files(PACKAGE_DATA).joinpath(name)))
-    if not p.exists():
-        raise typer.BadParameter(f"package data missing: {name}")
-    return p
 
 
 def _run_arches_admin(parent: Path, name: str, image: str) -> None:

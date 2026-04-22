@@ -1,0 +1,28 @@
+"""Custom datatype ${name}."""
+
+from arches.app.datatypes.base import BaseDataType
+
+
+details = {
+    "datatype": "${name}",
+    "iconclass": "fa fa-file-o",
+    "modulename": "${name}.py",
+    "classname": "${class_name}",
+    "defaultwidget": None,
+    "defaultconfig": {},
+    "configcomponent": "",
+    "configname": "${name}-config",
+    "isgeometric": False,
+    "issearchable": True,
+}
+
+
+class ${class_name}(BaseDataType):
+    def validate(self, value, row_number=None, source=None, node=None, nodeid=None, strict=False):
+        return []
+
+    def transform_value_for_tile(self, value, **kwargs):
+        return value
+
+    def get_display_value(self, tile, node, **kwargs):
+        return str(tile.data.get(str(node.nodeid), ""))
