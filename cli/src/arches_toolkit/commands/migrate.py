@@ -296,6 +296,20 @@ def _print_plan(
             f"found {ctx.root_dockerfile.name} at repo root — toolkit ships its own Dockerfile; "
             "review whether yours is still needed (not touched by migrate)"
         )
+    # Flag CI exposure: if we're about to delete docker/ or Makefile, loudly
+    # note that CI pipelines referencing those files will break. Users who
+    # want dev-side migration without touching CI should re-run with --dual-mode.
+    ci_exposed: list[str] = []
+    if ctx.legacy_docker is not None and not keep_docker:
+        ci_exposed.append("docker/")
+    if ctx.legacy_makefile is not None and not keep_makefile:
+        ci_exposed.append("Makefile")
+    if ci_exposed:
+        warnings.append(
+            "removing " + " and ".join(ci_exposed) + " — if your CI pipeline builds from "
+            "these, it will break after migrate. Re-run with --dual-mode to keep them while "
+            "migrating dev-side only."
+        )
     if ctx.non_user_owned_sample is not None:
         rel = ctx.non_user_owned_sample.relative_to(ctx.target)
         warnings.append(
@@ -450,8 +464,17 @@ def migrate(
         help="Don't remove stale generated dirs (node_modules/, .venv/, venv/, "
              "dist/, frontend_configuration/, static_root/, logs/) from the legacy toolchain",
     ),
+    dual_mode: bool = typer.Option(
+        False, "--dual-mode",
+        help="Migrate dev-side only; keep legacy docker/ and Makefile in place so "
+             "existing CI pipelines continue to work. Equivalent to "
+             "--keep-docker --keep-makefile with clearer intent.",
+    ),
 ) -> None:
     """Convert an existing Arches project to arches-toolkit shape."""
+    if dual_mode:
+        keep_docker = True
+        keep_makefile = True
     target = target_dir.resolve()
     if not target.is_dir():
         raise typer.BadParameter(f"{target}: not a directory")
