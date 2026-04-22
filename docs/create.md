@@ -93,8 +93,102 @@ Register commands by kind: `widget`, `card_component`, `plugin`, `report`,
 
 The `component` kind has no register step — it's just a Vue file.
 
-The `app` kind emits `pip install -e <path>` plus an `arches-toolkit
-add-app --source path` line so the new app is wired into the project.
+## `create app` lifecycle
+
+`create app` does more than scaffold — if run inside a project (cwd has
+`apps.yaml`), it also **auto-registers** the new app in `apps.yaml` with
+`mode: develop`. Opt out with `--no-register`.
+
+The full lifecycle for a new sibling-app you want to build incrementally
+inside your project's dev stack:
+
+```bash
+# 1. From the project root, scaffold the app as a sibling directory.
+#    apps.yaml is updated automatically with mode: develop.
+arches-toolkit create app file_uploader --path .. --arches-version 7.6
+
+# 2. Generate compose.apps.yaml with the bind mount for the new app.
+arches-toolkit sync-apps
+
+# 3. Recreate containers so the new volume mount takes effect.
+#    (A plain `restart` won't pick up new volumes — compose has to recreate.)
+arches-toolkit down
+arches-toolkit dev
+
+# 4. Install the new app editable in the container venv.
+#    Required until the develop-mode install gap is closed — see below.
+arches-toolkit exec web uv pip install -e /opt/apps/arches-file-uploader
+arches-toolkit restart web worker
+
+# 5. Edit the app's code freely — bind-mounted, no further actions needed.
+#    Django autoreload picks up Python changes; webpack HMR picks up frontend.
+```
+
+After step 4 the app is importable as `arches_file_uploader`. Add it to
+`INSTALLED_APPS` (either in the project's settings, or it may already be
+auto-discovered depending on your setup), use its widgets/datatypes/etc.
+
+### Why you don't need `--build`
+
+`arches-toolkit dev --build` rebuilds the Docker image. Nothing in the image
+changes when you add a develop-mode app — the app's code is bind-mounted, not
+baked in. A rebuild is wasted work. Only rebuild when you change the toolkit
+base image, the project Dockerfile, or the project's `pyproject.toml` pins.
+
+### Known gap: the container-side install
+
+Develop-mode apps are bind-mounted at `/opt/apps/<dirname>` by `sync-apps`,
+but the toolkit does not yet automatically `uv pip install -e` them into the
+container venv. Without step 4, Django will throw
+`ModuleNotFoundError: No module named 'arches_<name>'` when it tries to import
+the app.
+
+The install survives container restarts but not `arches-toolkit down -v`
+(which wipes the venv volume). After a `down -v`, redo step 4.
+
+Planned fix (tracked in `TASKS.md`): the dev-stage entrypoint will `pip install
+-e` every directory under `/opt/apps/` at container start, making this seamless.
+
+### Promoting from develop to release
+
+When your sibling-app stabilises and you want it installed from PyPI or a
+pinned git ref instead of bind-mounted, edit its entry in `apps.yaml`:
+
+```yaml
+# before
+- package: arches-file-uploader
+  source: pypi
+  mode: develop
+
+# after
+- package: arches-file-uploader
+  source: pypi
+  version: ">=0.1.0"
+  mode: release
+```
+
+Or for a git source:
+
+```yaml
+- package: arches-file-uploader
+  source: git
+  repo: https://github.com/you/arches-file-uploader.git
+  ref: v0.1.0
+  mode: release
+```
+
+Then `arches-toolkit sync-apps` removes the bind mount from `compose.apps.yaml`
+and adds the dep to `pyproject.toml`. A `dev --build` installs it at image
+build time.
+
+### About `source: pypi` on a freshly-scaffolded app
+
+`create app` registers with `source: pypi` by default. This is a placeholder —
+for `mode: develop` entries, sync-apps doesn't consult the `source` field at
+all (the bind mount dirname is derived from the package name instead). When
+you eventually promote to `mode: release`, update `source` + add a `version`
+or `repo`/`ref` — otherwise sync-apps will emit a PEP 508 line for a package
+PyPI doesn't have.
 
 ## Extending templates
 

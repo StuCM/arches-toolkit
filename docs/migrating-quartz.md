@@ -2,6 +2,12 @@
 
 Worked example of converting an existing F&T Arches project to the toolkit-managed dev loop. Derived from the pilot conversion of `arches-quartz` carried out on branch `pilot/arches-quartz`.
 
+> **Just migrating dev?** If you want to adopt the toolkit for local development
+> while keeping your existing CI and cluster pipelines on the legacy build path,
+> see [incremental-migration.md](incremental-migration.md) for the recommended
+> `--dual-mode` workflow. That's the safer rollout for any project whose CI is
+> already deploying to production.
+
 ## Before: what quartz ships today
 
 ```
