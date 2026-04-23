@@ -390,6 +390,14 @@ def app_cmd(
     manifest_path = Path.cwd() / "apps.yaml"
     registered = False
 
+    # `create app` scaffolds files but can't fully wire the app into the
+    # project automatically — Arches's system check (check_arches_compatibility)
+    # needs a real installable source (pypi/git) to discover package metadata,
+    # which a brand-new local scaffold doesn't have. Auto-register with
+    # source: pypi as a placeholder; the user must either push to git and
+    # flip source → git, or hand-edit pyproject.toml with a file:// URL
+    # before sync-apps. See TASKS.md "Open design problem: scaffolded
+    # local-only apps" for the deeper issue we want to solve eventually.
     if register and manifest_path.exists():
         manifest = manifest_mod.load(manifest_path)
         entry = AppEntry(
@@ -400,13 +408,35 @@ def app_cmd(
         action, _ = manifest.upsert(entry)
         manifest_mod.save(manifest, manifest_path)
         typer.echo("")
-        typer.echo(f"apps.yaml: {action} {pkg_name} (mode: develop)")
+        typer.echo(f"apps.yaml: {action} {pkg_name} (source: pypi — placeholder)")
         registered = True
 
     typer.echo("")
     typer.echo("Next:")
     if registered:
-        typer.echo("  arches-toolkit sync-apps          # propagate apps.yaml → compose.apps.yaml")
+        typer.echo(
+            "  # The apps.yaml entry uses source: pypi as a placeholder. Your"
+        )
+        typer.echo(
+            "  # new app isn't on PyPI yet, so sync-apps will fail to resolve it"
+        )
+        typer.echo(
+            "  # unless you first:"
+        )
+        typer.echo(
+            "  #   (a) push the scaffold to git, then change apps.yaml:"
+        )
+        typer.echo(
+            "  #       source: git, repo: <url>, ref: <branch>, path: <dirname>"
+        )
+        typer.echo(
+            "  #   (b) OR hand-edit pyproject.toml to add:"
+        )
+        typer.echo(
+            f'  #       "{pkg_name} @ file://{app_root}"'
+        )
+        typer.echo("")
+        typer.echo("  arches-toolkit sync-apps          # after fixing source above")
         typer.echo(
             "  arches-toolkit dev --build        # rebuild so the new app is picked up"
         )
