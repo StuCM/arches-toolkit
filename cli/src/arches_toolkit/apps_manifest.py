@@ -16,7 +16,7 @@ import yaml
 
 LOG = logging.getLogger(__name__)
 
-KNOWN_ENTRY_KEYS = {"package", "source", "version", "repo", "ref", "mode", "extras"}
+KNOWN_ENTRY_KEYS = {"package", "source", "version", "repo", "ref", "mode", "path", "extras"}
 VALID_SOURCES = {"pypi", "git"}
 VALID_MODES = {"release", "develop"}
 
@@ -31,6 +31,12 @@ class AppEntry:
     repo: str | None = None
     ref: str | None = None
     mode: str = "release"
+    # path: optional override for the sibling directory name used by
+    # compose.apps.yaml's bind mount in develop mode. When unset, sync-apps
+    # derives the dirname from `repo` (stripping `.git`) or falls back to
+    # `package`. Use this when your clone is checked out under a non-default
+    # name — e.g. a branch-named dir like `2.0.x/` instead of `arches-her/`.
+    path: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +48,8 @@ class AppEntry:
         if self.ref is not None:
             out["ref"] = self.ref
         out["mode"] = self.mode
+        if self.path is not None:
+            out["path"] = self.path
         # Re-attach unknown keys at the end, sorted for determinism.
         for k in sorted(self.extras):
             out[k] = self.extras[k]
@@ -67,6 +75,7 @@ class AppEntry:
             repo=data.get("repo"),
             ref=data.get("ref"),
             mode=mode,
+            path=data.get("path"),
             extras=extras,
         )
 

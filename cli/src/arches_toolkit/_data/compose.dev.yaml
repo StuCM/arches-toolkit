@@ -71,6 +71,13 @@ services:
       - sh
       - -euc
       - |
+        # Overlay-model apps: develop-mode apps are installed from their
+        # declared source (pypi/git) at image build time via uv sync. The
+        # compose.apps.yaml overlay bind-mounts their local clone source
+        # over /venv/.../site-packages/<name>, so edits show up without a
+        # runtime install. Nothing to do here beyond the frontend config
+        # regen below. $$ escapes compose variable interpolation.
+
         PROBE='
         import os, sys, psycopg2
         try:
@@ -81,8 +88,23 @@ services:
         except Exception:
             sys.exit(1)
         '
-        if python -c "$PROBE" 2>/dev/null; then
+        REGEN='
+        import django
+        django.setup()
+        from arches.app.utils.frontend_configuration_utils.generate_frontend_configuration import generate_frontend_configuration
+        generate_frontend_configuration()
+        print("init: regenerated frontend_configuration")
+        '
+        if python -c "$$PROBE" 2>/dev/null; then
           echo "init: db already initialized, skipping migrate/createcachetable"
+          # migrate on the cold-start path triggers app.ready() which calls
+          # generate_frontend_configuration() — that refreshes webpack-metadata.json
+          # so webpack can resolve the paths of installed apps. Warm start skips
+          # migrate, so we must regenerate explicitly — otherwise webpack reads
+          # stale paths and fails to resolve apps that have moved (e.g. a package
+          # that switched from release → develop mode is now at /opt/apps/<name>
+          # rather than /venv/lib/.../site-packages/<name>).
+          python -c "$$REGEN" 2>&1 || echo "init: frontend_configuration regen failed (run arches-toolkit setup-db if DB is incomplete)"
         else
           python manage.py migrate --noinput
           python manage.py createcachetable
@@ -119,16 +141,36 @@ services:
     # (Docker initialises named volumes as root:root); then drop to `app` for
     # the actual install/serve. node_modules is a mount point — no `rm -rf`.
     user: "0:0"
+    # x-arches-dev doesn't inherit depends_on from x-arches (different anchor);
+    # without this, webpack boots before init finishes regenerating
+    # webpack-metadata.json and reads a stale file (e.g. ROOT_DIR still
+    # pointing at /opt/arches after the image removed that path).
+    depends_on:
+      init:
+        condition: service_completed_successfully
     command:
       - sh
       - -euxc
       - |
         chown -R app:app /app/node_modules
+        # $$ escapes compose variable interpolation so the $ reaches the shell.
         exec su app -s /bin/sh -c '
           cd /app
-          if [ ! -f node_modules/.arches-toolkit-install-stamp ]; then
+          STAMP=node_modules/.arches-toolkit-install-stamp
+          # Reinstall if stamp is missing OR if package.json/lock is newer
+          # than it — so editing package.json + `arches-toolkit restart
+          # webpack` picks up new deps without any manual steps.
+          needs_install=0
+          if [ ! -f "$$STAMP" ]; then
+            needs_install=1
+          elif [ package.json -nt "$$STAMP" ]; then
+            needs_install=1
+          elif [ -f package-lock.json ] && [ package-lock.json -nt "$$STAMP" ]; then
+            needs_install=1
+          fi
+          if [ "$$needs_install" = "1" ]; then
             npm install --no-audit --no-fund
-            touch node_modules/.arches-toolkit-install-stamp
+            touch "$$STAMP"
           fi
           exec npm run start
         '

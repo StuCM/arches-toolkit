@@ -16,6 +16,10 @@ Reads ``apps.yaml`` and:
 
 from __future__ import annotations
 
+import ast
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import tomlkit
@@ -166,7 +170,15 @@ def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
 
 
 def _develop_repo_dirname(entry: AppEntry) -> str:
-    """Best-effort directory name for a develop-mode clone."""
+    """Directory name for a develop-mode sibling clone.
+
+    Precedence: explicit ``path`` on the entry → derived from repo URL →
+    package name. The explicit override covers cases where the user checked
+    out the clone under a non-default directory name (e.g. a branch-named
+    dir like ``2.0.x/`` instead of the repo-derived ``arches-her/``).
+    """
+    if entry.path:
+        return entry.path
     if entry.repo:
         last = entry.repo.rstrip("/").rsplit("/", 1)[-1]
         if last.endswith(".git"):
@@ -176,19 +188,36 @@ def _develop_repo_dirname(entry: AppEntry) -> str:
     return entry.package
 
 
+def _python_module_name(package: str) -> str:
+    """Python module name derived from a PyPI/dist package name (``-`` → ``_``)."""
+    return package.replace("-", "_")
+
+
 def _build_compose_apps(develop_apps: list[AppEntry]) -> dict:
-    """Build the compose.apps.yaml document for develop-mode apps."""
+    """Build the compose.apps.yaml document for develop-mode apps.
+
+    Overlay model: each develop-mode app is also installed normally via the
+    project's pyproject/lockfile (so uv sync handles the install + all
+    transitive deps), and this compose file bind-mounts the user's local
+    source over the installed site-packages location so edits are live.
+    The mount lands at /venv/.../site-packages/<python_name>, overlaying
+    just the Python package source — the install's .dist-info and metadata
+    stay intact. Mounts apply to every service that imports app code (init,
+    web, worker, api) plus webpack (which reads app media/js from the same
+    installed path via arches's ROOT_DIR-derived app paths).
+    """
     services: dict[str, dict] = {}
     for entry in develop_apps:
         dirname = _develop_repo_dirname(entry)
-        host_path = f"../{dirname}"
-        container_path = f"/opt/apps/{dirname}"
-        # Fragment merged with the main `web` service via compose's deep merge.
-        # Bind mount + an editable install hint for the dev workflow.
-        services.setdefault("web", {"volumes": []})
-        services["web"]["volumes"].append(f"{host_path}:{container_path}")
-        services.setdefault("worker", {"volumes": []})
-        services["worker"]["volumes"].append(f"{host_path}:{container_path}")
+        python_name = _python_module_name(entry.package)
+        # Mount the *inner* Python package dir — the clone's repo root also
+        # contains pyproject.toml, docker/, etc. which would clobber metadata
+        # if we overlaid everything.
+        host_path = f"../{dirname}/{python_name}"
+        container_path = f"/venv/lib/python3.12/site-packages/{python_name}"
+        for svc in ("init", "web", "worker", "api", "webpack"):
+            services.setdefault(svc, {"volumes": []})
+            services[svc]["volumes"].append(f"{host_path}:{container_path}")
     doc: dict = {"services": services}
     return doc
 
@@ -209,6 +238,220 @@ def _sync_compose_apps(develop_apps: list[AppEntry], project_root: Path) -> str:
     return f"{COMPOSE_APPS_FILENAME}: updated"
 
 
+# --------------------------------------------------------------------------- #
+# Managed INSTALLED_APPS block
+# --------------------------------------------------------------------------- #
+
+INSTALLED_APPS_MARKER_START = "# arches-toolkit:installed-apps-start"
+INSTALLED_APPS_MARKER_END = "# arches-toolkit:installed-apps-end"
+
+
+def _django_module_for_app(entry: AppEntry) -> str:
+    """Python module name Django uses in INSTALLED_APPS (PEP 503 dash → underscore)."""
+    return entry.package.replace("-", "_")
+
+
+def _read_env_var(project_root: Path, key: str) -> str | None:
+    """Minimal .env reader — returns the value for key or None."""
+    env = project_root / ".env"
+    if not env.exists():
+        return None
+    for line in env.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        if k.strip() == key:
+            return v.strip().strip('"').strip("'")
+    return None
+
+
+def _find_settings_path(project_root: Path) -> Path | None:
+    """Locate the Django settings.py via .env's PROJECT_PACKAGE, then fall
+    back to the first sibling directory with both __init__.py and settings.py.
+    """
+    pkg = _read_env_var(project_root, "PROJECT_PACKAGE")
+    if pkg:
+        candidate = project_root / pkg / "settings.py"
+        if candidate.exists():
+            return candidate
+    # Fallback: scan for a package dir
+    for child in sorted(project_root.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        settings = child / "settings.py"
+        if settings.exists() and (child / "__init__.py").exists():
+            return settings
+    return None
+
+
+def _find_top_level_installed_apps(source: str) -> ast.AST | None:
+    """Locate the FIRST top-level ``INSTALLED_APPS = <list_or_tuple>`` assignment.
+
+    Ignores conditional ``INSTALLED_APPS += [...]`` lower in the file — those
+    are user-owned extensions. We only touch the primary literal.
+    """
+    tree = ast.parse(source)
+    for node in ast.iter_child_nodes(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "INSTALLED_APPS"
+            and isinstance(node.value, (ast.List, ast.Tuple))
+        ):
+            return node.value
+    return None
+
+
+def _source_offset(source: str, lineno: int, col: int) -> int:
+    """Convert 1-based line + 0-based col to a flat character index."""
+    lines = source.splitlines(keepends=True)
+    return sum(len(line) for line in lines[: lineno - 1]) + col
+
+
+def _inject_managed_apps(source: str, modules: list[str]) -> tuple[str, str]:
+    """Inject the toolkit-managed section INSIDE the INSTALLED_APPS literal.
+
+    The managed section lives as ordinary entries of the tuple/list,
+    delimited by comment markers — so static analysis, linting, and CI
+    introspection all see a normal literal. Idempotent: re-running with
+    the same modules is a no-op; with different modules, only the lines
+    between markers are rewritten.
+
+    Returns ``(new_source, status)``. ``status`` is a human-readable summary.
+    """
+    literal = _find_top_level_installed_apps(source)
+    if literal is None:
+        return source, (
+            "settings.py: no top-level INSTALLED_APPS = [...] / (...) assignment "
+            "found — skipping INSTALLED_APPS sync (manage it by hand)"
+        )
+
+    literal_start = _source_offset(source, literal.lineno, literal.col_offset)
+    literal_end = _source_offset(source, literal.end_lineno, literal.end_col_offset)
+    literal_text = source[literal_start:literal_end]
+
+    # Infer the indentation used for entries. Default to 4 spaces if the
+    # literal is a one-liner (no entries on their own lines yet).
+    indent = "    "
+    m = re.search(r"\n([ \t]+)[\"']", literal_text)
+    if m:
+        indent = m.group(1)
+
+    # Build the managed section (list of source lines, not newline-terminated)
+    block_lines = [f"{indent}{INSTALLED_APPS_MARKER_START}"]
+    block_lines.append(
+        f"{indent}# Managed by arches-toolkit sync-apps — do not edit between"
+    )
+    block_lines.append(
+        f"{indent}# these markers. To remove an app, drop it from apps.yaml"
+    )
+    block_lines.append(f"{indent}# and re-run sync-apps.")
+    for mod in modules:
+        block_lines.append(f'{indent}"{mod}",')
+    block_lines.append(f"{indent}{INSTALLED_APPS_MARKER_END}")
+    block_text = "\n".join(block_lines)
+
+    # Case 1: markers already present inside the literal → replace content.
+    start_in_lit = literal_text.find(INSTALLED_APPS_MARKER_START)
+    end_in_lit = literal_text.find(INSTALLED_APPS_MARKER_END)
+    if start_in_lit != -1 and end_in_lit != -1 and start_in_lit < end_in_lit:
+        # Expand to include the whole line around each marker.
+        abs_start = literal_start + start_in_lit
+        line_start = source.rfind("\n", 0, abs_start) + 1
+        abs_end = literal_start + end_in_lit + len(INSTALLED_APPS_MARKER_END)
+        line_end = source.find("\n", abs_end)
+        if line_end == -1:
+            line_end = abs_end
+        new_source = source[:line_start] + block_text + source[line_end:]
+        if new_source == source:
+            return source, "settings.py: INSTALLED_APPS already in sync"
+        return new_source, (
+            f"settings.py: INSTALLED_APPS managed section updated "
+            f"({len(modules)} app(s))"
+        )
+
+    # Case 2: no markers yet → insert before the closing bracket of the literal.
+    # The close bracket is at literal_end - 1. We want to splice the block
+    # in on its own lines, BEFORE the line that holds the close bracket.
+    close_pos = literal_end - 1  # index of `]` or `)`
+    # Walk backwards to find the newline that starts the close-bracket line.
+    newline_before_close = source.rfind("\n", literal_start, close_pos)
+    if newline_before_close == -1:
+        # One-liner literal, e.g. INSTALLED_APPS = ["a", "b"].
+        # Reformat: inject the managed block on its own lines right before the
+        # closing bracket, adding a leading newline+indent.
+        new_source = (
+            source[:close_pos]
+            + "\n"
+            + block_text
+            + "\n"
+            + source[close_pos:]
+        )
+    else:
+        new_source = (
+            source[: newline_before_close + 1]
+            + block_text
+            + "\n"
+            + source[newline_before_close + 1 :]
+        )
+    return new_source, (
+        f"settings.py: INSTALLED_APPS managed section inserted "
+        f"({len(modules)} app(s))"
+    )
+
+
+def _sync_installed_apps(
+    all_apps: list[AppEntry], project_root: Path
+) -> str:
+    """Update the toolkit-managed section inside INSTALLED_APPS in settings.py.
+
+    The section lives as ordinary entries in the tuple/list literal, delimited
+    by comment markers. Idempotent: re-running regenerates the section from
+    the apps list; entries the user added outside the markers stay untouched.
+    """
+    settings_path = _find_settings_path(project_root)
+    if settings_path is None:
+        return (
+            "settings.py: not found — skipping INSTALLED_APPS sync "
+            "(set PROJECT_PACKAGE in .env so we can locate it)"
+        )
+    text = settings_path.read_text(encoding="utf-8")
+
+    modules = sorted({_django_module_for_app(a) for a in all_apps})
+    new_text, status = _inject_managed_apps(text, modules)
+    if new_text == text:
+        return status
+    settings_path.write_text(new_text, encoding="utf-8")
+    return status
+
+
+def _run_uv_lock(project_root: Path) -> str:
+    """Run ``uv lock`` in the project directory, returning a status string.
+
+    Non-fatal if uv isn't installed or the lock fails — the user may be
+    working on a machine without uv and prefer to handle it themselves.
+    """
+    if shutil.which("uv") is None:
+        return "uv.lock: skipped (uv not on PATH; run `uv lock` yourself)"
+    result = subprocess.run(
+        ["uv", "lock"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # Print uv's output so the user can see what went wrong, but don't
+        # crash — sync-apps has done its file-level work already.
+        if result.stdout:
+            typer.echo(result.stdout.rstrip())
+        if result.stderr:
+            typer.echo(result.stderr.rstrip(), err=True)
+        return "uv.lock: failed — fix pyproject.toml and re-run `uv lock`"
+    return "uv.lock: regenerated"
+
+
 def sync_apps(
     manifest_path: Path = typer.Option(
         Path("apps.yaml"),
@@ -222,6 +465,14 @@ def sync_apps(
         help="Project root containing pyproject.toml (default: cwd)",
         show_default=False,
     ),
+    no_lock: bool = typer.Option(
+        False, "--no-lock",
+        help="Skip the `uv lock` step at the end — leave the lockfile as-is",
+    ),
+    no_installed_apps: bool = typer.Option(
+        False, "--no-installed-apps",
+        help="Skip updating the toolkit-managed INSTALLED_APPS block in settings.py",
+    ),
 ) -> None:
     if not manifest_path.exists():
         raise typer.BadParameter(
@@ -230,8 +481,22 @@ def sync_apps(
     manifest: AppsManifest = manifest_mod.load(manifest_path)
     release = list(manifest_mod.iter_release(manifest))
     develop = list(manifest_mod.iter_develop(manifest))
-    typer.echo(_sync_pyproject(release, project_root))
+    # Overlay model:
+    #   - release apps go into pyproject for uv sync to install.
+    #   - develop apps ALSO go into pyproject so uv sync installs the app +
+    #     all transitive deps; the compose overlay then bind-mounts the
+    #     clone's source over the installed site-packages copy for live
+    #     editing. Every app must be installable from a pypi or git source
+    #     — see TASKS.md "Open design problem: scaffolded local-only apps".
+    typer.echo(_sync_pyproject(release + develop, project_root))
     typer.echo(_sync_compose_apps(develop, project_root))
+    if not no_installed_apps:
+        # All apps that appear in apps.yaml should make it into INSTALLED_APPS
+        # — including local-source ones. The toolkit-managed block skips
+        # names already declared manually, so it's safe to be inclusive.
+        typer.echo(_sync_installed_apps(release + develop, project_root))
+    if not no_lock:
+        typer.echo(_run_uv_lock(project_root))
 
 
 # Re-exported for tests.

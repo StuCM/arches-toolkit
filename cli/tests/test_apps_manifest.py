@@ -78,6 +78,35 @@ def test_upsert_adds_then_unchanged_then_updates(tmp_path: Path) -> None:
     assert len(manifest.apps) == 1
 
 
+def test_path_override_roundtrips(tmp_path: Path) -> None:
+    """The optional `path` field (used to override the develop-mode sibling
+    dirname) round-trips through save/load without loss."""
+    src = tmp_path / "apps.yaml"
+    src.write_text(
+        yaml.safe_dump(
+            {
+                "apps": [
+                    {
+                        "package": "arches-her",
+                        "source": "git",
+                        "repo": "https://github.com/archesproject/arches-her.git",
+                        "ref": "dev/2.0.x",
+                        "mode": "develop",
+                        "path": "2.0.x",
+                    }
+                ]
+            }
+        )
+    )
+    manifest = m.load(src)
+    assert manifest.apps[0].path == "2.0.x"
+
+    out = tmp_path / "out.yaml"
+    m.save(manifest, out)
+    reloaded = yaml.safe_load(out.read_text())
+    assert reloaded["apps"][0]["path"] == "2.0.x"
+
+
 def test_unknown_keys_preserved(tmp_path: Path) -> None:
     src = tmp_path / "apps.yaml"
     src.write_text(
