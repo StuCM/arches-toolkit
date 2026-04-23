@@ -94,8 +94,10 @@ Subsequent runs: `arches-toolkit dev` (no `--build`).
 The `init` service's dev-mode warm-start probe short-circuits when the DB already has migrations. On a fresh volume it runs `migrate` and `createcachetable` and then exits. If you want the full arches bootstrap (drop+rebuild DB, reseed indexes, install default system settings):
 
 ```
-arches-toolkit setup-db --dev
+arches-toolkit setup-db --yes --dev-users
 ```
+
+`--dev-users` passes through to `manage.py setup_db --dev`, which seeds test users (`admin/admin`, etc.). Omit it for a clean DB with no users. `--yes` skips the destructive-action confirmation prompt.
 
 ### 7. Verification
 

@@ -29,6 +29,7 @@ arches-toolkit dev --build           # first run: builds project image, starts s
                                      # (watch: http://localhost:8000)
 arches-toolkit setup-db              # ONE-TIME: setup_db, ES indexes, system-settings resource
                                      # → /settings/ now works, /search/ now works
+                                     # add --dev-users to seed admin/admin; --yes to skip confirm
 ```
 
 After that, stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build`, no setup-db — their work is persisted in volumes).
@@ -135,6 +136,29 @@ arches-toolkit patch status                # same, plus GitHub PR state if GH_TO
 arches-toolkit patch renew my-fix          # bump Last-reviewed to today
 ```
 
+## Changing the Arches base
+
+The toolkit's base image pins an upstream Arches ref at build time. The default is `stable/8.1.0`, consumed via the floating tag `latest-arches-stable-8.1.0` on `ghcr.io/flaxandteal/arches-toolkit`.
+
+**To follow a different published ref** — set in your project's `.env`:
+
+```bash
+ARCHES_TOOLKIT_TAG=latest-arches-dev-8.1.x          # floating: follows dev/8.1.x
+ARCHES_TOOLKIT_TAG=<toolkit-sha>-arches-stable-8.1.0  # pinned: reproducible
+```
+
+Then `arches-toolkit down && arches-toolkit dev --build` to rebuild your project image against the new base. If you're also using `ARCHES_SRC`, check out the matching ref in your clone too (see [docs/local-arches-src.md#version-alignment](docs/local-arches-src.md#version-alignment)).
+
+**To build against a ref the CI hasn't published** — e.g. a specific commit SHA, a feature branch, or a fork — build the base image locally. `ARCHES_REF` accepts branches, tags, and commit SHAs:
+
+```bash
+./docker/base/build.sh --arches-ref v8.1.0       # tag
+./docker/base/build.sh --arches-ref abc1234      # commit SHA
+./docker/base/build.sh --arches-ref my-branch --arches-repo https://github.com/your-fork/arches.git
+```
+
+See [docker/base/README.md](docker/base/README.md) for the full tag scheme and CI publishing matrix.
+
 ## Env vars at a glance
 
 ### Per-environment (live in `.env` or cluster secrets)
@@ -170,7 +194,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
 | `arches-toolkit create <kind> <name>` | Scaffold a widget / plugin / component / app / etc. (see [docs/create.md](docs/create.md)) |
 | `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
-| `arches-toolkit setup-db` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings |
+| `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings. `--dev-users` seeds test accounts (admin/admin); `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml` + `compose.apps.yaml` from `apps.yaml` |
 | `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |
