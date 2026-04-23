@@ -28,6 +28,25 @@ def _package_data_path(name: str) -> Path:
     return p
 
 
+def _env_file_var(env_path: Path, key: str) -> str | None:
+    """Minimal .env reader — returns the value for key, or None.
+
+    Docker compose reads .env automatically for YAML interpolation, but the
+    Python CLI doesn't get that for free. We look up specific keys that gate
+    CLI-level behaviour (right now: ARCHES_SRC).
+    """
+    if not env_path.exists():
+        return None
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        if k.strip() == key:
+            return v.strip().strip('"').strip("'")
+    return None
+
+
 def _compose_argv(
     project_root: Path,
     compose_files: list[Path],
@@ -68,12 +87,21 @@ def dev(
     project_root = project_root.resolve()
     compose_files += [project_root / n for n in PROJECT_OVERLAYS if (project_root / n).exists()]
 
-    if os.environ.get("ARCHES_SRC"):
+    # Shell env wins; fall back to project .env so users can put ARCHES_SRC
+    # there alongside other toolkit config.
+    arches_src = os.environ.get("ARCHES_SRC") or _env_file_var(
+        project_root / ".env", "ARCHES_SRC"
+    )
+    if arches_src:
         compose_files.append(_package_data_path(ARCHES_SRC_OVERLAY))
+        typer.echo(f"+ ARCHES_SRC={arches_src}  (overlay: compose.arches-src.yaml)")
 
     argv = _compose_argv(project_root, compose_files, list(ctx.args), build=build)
     env = os.environ.copy()
     env["ARCHES_TOOLKIT_DOCKERFILE"] = str(dockerfile)
+    # Make ARCHES_SRC available to compose even if it came from .env only.
+    if arches_src:
+        env["ARCHES_SRC"] = arches_src
 
     typer.echo(f"+ ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
     typer.echo(f"+ {' '.join(argv)}")

@@ -1,7 +1,15 @@
 # Included by `arches-toolkit dev` when ARCHES_SRC is set.
-# Bind-mounts a local Arches source tree over the base image's /opt/arches so
-# edits (logs, prints, small patches) show up without rebuilding.
-# Requires the base image to have installed Arches editable (uv pip install -e).
+# Bind-mounts a local Arches source tree over the base image's /opt/arches.
+# Because the base image installs Arches editable from /opt/arches, imports
+# follow the bind mount automatically — no runtime install needed.
+#
+# ARCHES_SRC must point at the Arches *repo root* (the directory containing
+# pyproject.toml AND the inner `arches/` Python package) — same layout as
+# what `docker/base/build.sh` clones into /opt/arches.
+#
+# NOTE: your clone's ref must be roughly aligned with the base image's
+# baked arches ref — large drift causes ImportErrors (e.g. VERSION missing
+# in older refs, referenced by newer ecosystem apps).
 
 x-arches-src: &arches-src
   volumes:
@@ -12,3 +20,7 @@ services:
   web: { <<: *arches-src }
   worker: { <<: *arches-src }
   api: { <<: *arches-src }
+  # webpack too — arches's webpack config reads JS from the arches source
+  # tree (via ROOT_DIR), so the overlay needs to apply there as well for
+  # JS/Vue edits in your clone to bundle.
+  webpack: { <<: *arches-src }
