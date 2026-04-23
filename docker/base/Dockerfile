@@ -3,7 +3,7 @@
 FROM ubuntu:24.04 AS arches-src
 
 ARG ARCHES_REPO=https://github.com/archesproject/arches.git
-ARG ARCHES_REF=stable/8.1.0
+ARG ARCHES_REF=stable/8.1.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -36,7 +36,7 @@ RUN rm -rf /src/arches/.git
 
 FROM ubuntu:24.04 AS base
 
-ARG ARCHES_REF=stable/8.1.0
+ARG ARCHES_REF=stable/8.1.2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \

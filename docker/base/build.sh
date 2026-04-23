@@ -8,7 +8,7 @@
 #              [--platform <list>] [--publish] [--tag <extra-tag>]
 #
 # Defaults:
-#   --arches-ref   stable/8.1.0
+#   --arches-ref   stable/8.1.2
 #   --arches-repo  https://github.com/archesproject/arches.git
 #   --platform     linux/amd64
 #   (no --publish: --load instead, single-platform only)
@@ -17,14 +17,14 @@
 #   ghcr.io/flaxandteal/arches-toolkit:<short-toolkit-sha>-arches-<sanitised-ref>
 #   ghcr.io/flaxandteal/arches-toolkit:latest-arches-<sanitised-ref>
 #
-# The "<sanitised-ref>" replaces "/" with "-" so e.g. "stable/8.1.0" becomes
-# "stable-8.1.0" (slashes are not legal in OCI tags).
+# The "<sanitised-ref>" replaces "/" with "-" so e.g. "stable/8.1.2" becomes
+# "stable-8.1.2" (slashes are not legal in OCI tags).
 
 set -euo pipefail
 
 # ---- defaults --------------------------------------------------------------
 
-ARCHES_REF="stable/8.1.0"
+ARCHES_REF="stable/8.1.2"
 ARCHES_REPO="https://github.com/archesproject/arches.git"
 PLATFORM="linux/amd64"
 PUBLISH=0
