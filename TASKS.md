@@ -264,6 +264,120 @@ Concrete proof-of-concept for the patch workflow. Solves the non-root-write prob
 
 ---
 
+## Open design problem: pyproject/lockfile version skew vs base-image arches
+
+**Status:** current design is base-image-authoritative (chosen for pilot);
+the skew risk below needs a design session before the toolkit is widely adopted.
+
+**Current design.** The base image (`docker/base/build.sh`) clones Arches
+from a configurable git ref (default `stable/8.1.0`), applies patches from
+`docker/base/patches/*.patch`, and editable-installs the result to `/venv`.
+The project Dockerfile inherits the base and runs `uv sync --frozen
+--no-install-project`, which leaves the editable install in place — `uv
+sync` treats an already-installed editable package as satisfying any
+version constraint in the lockfile. So the patched, base-image-built
+Arches is what runs at runtime, and `docker/base/patches/*.patch` reach
+the runtime Python process as intended.
+
+**The tension.** A project's `pyproject.toml` + `uv.lock` can resolve
+`arches` and its ecosystem (`arches-querysets`, `arches-controlled-lists`,
+etc.) to versions that assume a NEWER Arches than the base image shipped.
+Example: `arches-querysets` imports `from arches import VERSION`; that
+attribute may not exist in the base image's older Arches ref. At import
+time, the ecosystem app crashes with `ImportError: cannot import name
+'VERSION'`. Because `uv sync` doesn't replace the editable install, there's
+no warning that the skew exists — the project boots into a state where
+Arches is 8.1.0 but its ecosystem expects 8.1.2 APIs.
+
+**Mitigations today:**
+
+- Keep the base image ref reasonably recent — if `stable/8.1.0` has moved
+  on, rebuild the base image to pick up the branch's latest commit.
+- Users who hit this skew should tighten their `pyproject.toml` arches
+  constraint to match the base image's ref (e.g. `arches==8.1.2`), or bump
+  the base image.
+- The ARCHES_SRC overlay is for live-editing arches-core only; the clone
+  needs to match the base image's ref or you hit the same ImportError in
+  a different way.
+
+**Options for a better long-term answer:**
+
+1. **Publish patched arches as a wheel to an internal index.** `pyproject.toml`
+   pins `arches @ private-index/arches==8.1.2+fat.1`. uv sync installs the
+   patched wheel. Clean but needs infra (private index) and a release
+   process for wheels. Makes lockfile + runtime coherent again.
+2. **Publish a maintained F&T fork of arches on git, pin via `source: git`.**
+   `pyproject.toml`: `"arches @ git+https://github.com/flaxandteal/arches.git@fat-patches"`.
+   Same reproducibility, lives on GitHub, no private index. Tension with
+   PLAN.md's stated goal of *retiring* the F&T fork in favour of upstream
+   + reviewable patches.
+3. **Detect-and-warn at sync-apps time.** If the project's lockfile
+   arches version doesn't match the base image's baked ref (readable from
+   the image metadata or an env var set at base-image build), `sync-apps`
+   emits a loud warning with the tightening suggestion.
+4. **Upstream aggressively**, so there are no patches. Arches core ships
+   every feature we'd otherwise patch. Not controllable from our side.
+
+**Also:** closely related to the scaffolded-local-apps problem below —
+both ask "how does the toolkit reconcile non-PyPI Python code into the
+runtime venv" — solving one well may illuminate the other.
+
+---
+
+## Open design problem: scaffolded local-only apps
+
+**Status:** unresolved. Needs a design session before picking an approach.
+
+**Context.** `arches-toolkit create app my_thing` scaffolds a new Arches
+application on disk. Before the user pushes it to git or publishes to PyPI,
+there's no installable source — yet we'd like the app to "just work" in
+the dev stack so newcomers can scaffold, edit, and iterate without git
+ceremony up front.
+
+**What we tried (and reverted):** a new `source: local` apps.yaml entry
+that skipped pyproject and relied purely on a bind mount of the Python
+package into `/venv/.../site-packages/<name>`. Arches 8.1's
+`check_arches_compatibility` system check needs `importlib.metadata.requires(config.name)`
+to succeed, which requires a real `.dist-info` directory. A bind-mounted
+package has no `.dist-info`, so the check raises `PackageNotFoundError`
+and the worker crashes at startup. Reverted in late Phase 1 pilot.
+
+**Options on the table for a fix:**
+
+1. **Install at runtime from bind-mounted path.** init service runs `uv pip
+   install -e /opt/apps/<name>` on container start. Generates `.dist-info`,
+   satisfies the check. Tried earlier in Phase 1 — has real issues with
+   version skew between base image arches and project-locked arches,
+   transitive dep resolution, and add/remove idempotency. Reverted to the
+   overlay model. Would need careful redesign.
+2. **Use `file://` URL in pyproject.toml** (`"arches-my-app @ file:///..."`)
+   so uv sync installs with proper metadata. Works, but uv.lock then has
+   absolute paths that don't transfer between machines — fragile for teams.
+   Fine for solo dev.
+3. **Use `[tool.uv.sources]` with a relative path** — uv supports
+   `arches-my-app = { path = "../arches-my-app", editable = true }` which
+   locks with a relative reference. Needs validation that uv handles this
+   cleanly across machines, and we'd need to teach sync-apps to emit a
+   separate [tool.uv.sources] table.
+4. **Scaffold a local git repo on create** (`git init` + first commit)
+   and use `source: git, repo: file:///path/to/repo.git`. A bit magical;
+   leaves a git repo the user may not have wanted yet. But every machine's
+   uv.lock would have a valid git+file:// URL.
+5. **Generate fake `.dist-info` alongside the bind mount** so the metadata
+   check passes. Hacky — we'd be forging package metadata to satisfy a
+   runtime check.
+
+**Constraint to consider.** Whatever we pick must keep teammates able to
+clone the project and run `arches-toolkit dev` without unexpected manual
+steps. Relative paths in uv.lock (option 3) might be the cleanest fit.
+
+**Convenience to preserve.** `create app` should still auto-register in
+apps.yaml — the user edits apps.yaml once, not once per propagation step.
+Today that auto-registration uses `source: pypi` as a placeholder, and the
+user has to fix the source before `sync-apps` will succeed.
+
+---
+
 ## Phase 2 (deferred — not started in Phase 1)
 
 - Helm chart improvements at `clusters/helm-arches`: volume provisioning for writable paths, security context defaults, `extraServices` map, chart bump to 0.0.19

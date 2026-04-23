@@ -215,6 +215,7 @@ See [cli/src/arches_toolkit/commands/](cli/src/arches_toolkit/commands/) for the
 - [docs/incremental-migration.md](docs/incremental-migration.md) — adopt the toolkit for dev while keeping legacy CI — the recommended path for projects already deploying to production
 - [docs/migrating-quartz.md](docs/migrating-quartz.md) — worked migration example
 - [docs/create.md](docs/create.md) — scaffolding apps, widgets, plugins, etc. and the full `create app` lifecycle
+- [docs/local-arches-src.md](docs/local-arches-src.md) — bind-mount a local Arches clone via `ARCHES_SRC` to debug Arches core live
 - [docs/fork-inventory.md](docs/fork-inventory.md) — why the old F&T fork of Arches is being retired
 - [docs/local-dev.md](docs/local-dev.md) — dev loop notes (mostly superseded by this README)
 - [docs/compose-extras.md](docs/compose-extras.md) — adding project-specific services

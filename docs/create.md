@@ -97,57 +97,196 @@ The `component` kind has no register step — it's just a Vue file.
 
 `create app` does more than scaffold — if run inside a project (cwd has
 `apps.yaml`), it also **auto-registers** the new app in `apps.yaml` with
-`mode: develop`. Opt out with `--no-register`.
+`source: pypi, mode: develop` as a placeholder. Opt out with `--no-register`.
 
-The full lifecycle for a new sibling-app you want to build incrementally
-inside your project's dev stack:
+### Install shapes the toolkit handles
+
+| `source` | `mode` | In pyproject? | Overlay mount? | Use case |
+|---|---|---|---|---|
+| `pypi` / `git` | `release` | yes | no | Normal dep, install from remote, don't edit locally |
+| `pypi` / `git` | `develop` | yes | yes | Install from remote + overlay clone source for live editing |
+
+Release-mode apps live only in pyproject. Develop-mode apps go through
+pyproject **and** get a bind mount so your clone's edits overlay the
+install. Every app needs a real installable source — there is no "local
+filesystem only" mode today. See **Known limitation** below.
+
+### Brand-new scaffolded app flow
 
 ```bash
-# 1. From the project root, scaffold the app as a sibling directory.
-#    apps.yaml is updated automatically with mode: develop.
-arches-toolkit create app file_uploader --path .. --arches-version 7.6
+# 1. From the project root, scaffold the app as a sibling dir.
+#    Auto-registers as source: pypi (placeholder), mode: develop.
+arches-toolkit create app file_uploader --path ..
 
-# 2. Generate compose.apps.yaml with the bind mount for the new app.
+# 2. ⚠ STOP — the app isn't on PyPI yet, so `sync-apps` will fail unless
+#    you fix the source first. Pick one:
+#
+#    (a) Push the scaffold to git, then edit apps.yaml:
+#        source: git
+#        repo: <your-git-url>
+#        ref: main
+#        path: arches-file-uploader
+#
+#    (b) Hand-edit pyproject.toml to add:
+#        "arches-file-uploader @ file:///absolute/path/to/arches-file-uploader"
+#        (Option b makes your uv.lock machine-specific — don't commit it
+#        until you've moved to (a).)
+
+# 3. After fixing the source, propagate apps.yaml through the rest:
 arches-toolkit sync-apps
+#    - Regenerates pyproject.toml + compose.apps.yaml
+#    - Regenerates uv.lock automatically
+#    - Updates INSTALLED_APPS managed section in settings.py
 
-# 3. Recreate containers so the new volume mount takes effect.
-#    (A plain `restart` won't pick up new volumes — compose has to recreate.)
+# 4. Rebuild so uv sync installs the app + deps in the image.
 arches-toolkit down
-arches-toolkit dev
+arches-toolkit dev --build
 
-# 4. Install the new app editable in the container venv.
-#    Required until the develop-mode install gap is closed — see below.
-arches-toolkit exec web uv pip install -e /opt/apps/arches-file-uploader
-arches-toolkit restart web worker
-
-# 5. Edit the app's code freely — bind-mounted, no further actions needed.
-#    Django autoreload picks up Python changes; webpack HMR picks up frontend.
+# 5. Edit the app's code freely — bind-mounted, changes are live.
 ```
 
-After step 4 the app is importable as `arches_file_uploader`. Add it to
-`INSTALLED_APPS` (either in the project's settings, or it may already be
-auto-discovered depending on your setup), use its widgets/datatypes/etc.
+### Known limitation: brand-new filesystem-only apps
 
-### Why you don't need `--build`
+A "local-only" mode where scaffolded apps could be used via bind mount
+without any installable source would be ideal but isn't feasible today:
+Arches 8.1's `check_arches_compatibility` system check requires
+`importlib.metadata` to find the app's package metadata, which doesn't
+exist for bind-mounted-only packages. See
+[TASKS.md](../TASKS.md) "Open design problem: scaffolded local-only apps"
+— this is a real gap we want to close. For now, scaffolded apps need to
+either be pushed to git or referenced by file:// URL in pyproject.toml.
 
-`arches-toolkit dev --build` rebuilds the Docker image. Nothing in the image
-changes when you add a develop-mode app — the app's code is bind-mounted, not
-baked in. A rebuild is wasted work. Only rebuild when you change the toolkit
-base image, the project Dockerfile, or the project's `pyproject.toml` pins.
+### Promoting local → git (when you're ready to share)
 
-### Known gap: the container-side install
+Once you push the scaffold to a git repo, flip the source:
 
-Develop-mode apps are bind-mounted at `/opt/apps/<dirname>` by `sync-apps`,
-but the toolkit does not yet automatically `uv pip install -e` them into the
-container venv. Without step 4, Django will throw
-`ModuleNotFoundError: No module named 'arches_<name>'` when it tries to import
-the app.
+```yaml
+# apps.yaml — change from:
+- package: arches-file-uploader
+  source: local
+  mode: develop
+  path: arches-file-uploader
 
-The install survives container restarts but not `arches-toolkit down -v`
-(which wipes the venv volume). After a `down -v`, redo step 4.
+# to:
+- package: arches-file-uploader
+  source: git
+  repo: https://github.com/your-org/arches-file-uploader.git
+  ref: main
+  mode: develop         # keep develop to maintain the overlay
+  path: arches-file-uploader
+```
 
-Planned fix (tracked in `TASKS.md`): the dev-stage entrypoint will `pip install
--e` every directory under `/opt/apps/` at container start, making this seamless.
+```bash
+arches-toolkit sync-apps    # sync-apps auto-runs uv lock
+arches-toolkit down && arches-toolkit dev --build
+```
+
+Now the app is installed from git (via uv sync) AND overlaid by your
+local clone. Your CI and teammates get the installable version; you
+keep the live-editing loop.
+
+### Early-stages git-published app (e.g. arches-her on a dev branch)
+
+You already have a remote; you just want to work on a branch live:
+
+```bash
+# 1. Clone the app somewhere (typically sibling of project).
+cd /path/to/project-parent
+git clone https://github.com/archesproject/arches-her.git 2.0.x -b dev/2.0.x
+
+# 2. Register in apps.yaml (by hand, or via `arches-toolkit add-app`):
+```
+
+```yaml
+- package: arches-her
+  source: git
+  repo: https://github.com/archesproject/arches-her.git
+  ref: dev/2.0.x
+  mode: develop
+  path: 2.0.x           # optional: when the clone dir name differs from the repo name
+```
+
+```bash
+# 3. Normal sync-apps + rebuild
+arches-toolkit sync-apps
+arches-toolkit down && arches-toolkit dev --build
+
+# 4. Add to INSTALLED_APPS in settings.py if needed
+```
+
+### Clones under a non-default directory name
+
+By default `sync-apps` derives the sibling dirname from the repo URL
+(e.g. `.../arches-her.git` → `../arches-her/`). If your clone is checked
+out under a different name — for example you keep multiple branches as
+sibling clones named by the branch — add `path:` to the apps.yaml entry:
+
+```yaml
+- package: arches-her
+  source: git
+  repo: https://github.com/archesproject/arches-her.git
+  ref: dev/2.0.x
+  mode: develop
+  path: 2.0.x
+```
+
+Precedence used by `_develop_repo_dirname`: explicit `path` → repo-derived
+name → `package` fallback. If the path is wrong, the bind mount either
+surfaces an empty dir (wrong path) or the wrong clone's source — Python
+imports then fall through to whatever the install placed in site-packages.
+
+### Why you need `--build` the first time
+
+`arches-toolkit dev --build` rebuilds the image so `uv sync` picks up the
+new dep (for pypi/git sources) or compose picks up the new volume (for
+local sources). Subsequent edits to the app's source don't need a rebuild
+— the overlay makes them live. Only rebuild when you change
+`pyproject.toml`, `uv.lock`, or the toolkit's Dockerfile.
+
+### The toolkit-managed INSTALLED_APPS section
+
+`sync-apps` keeps a clearly-marked section **inside** your `INSTALLED_APPS`
+tuple/list. The entries are ordinary members of the list — no runtime
+extension, no separate identifier, no magic. Any tool that reads the
+literal (linters, CI inspectors, `manage.py check`, your code editor's
+autocomplete) sees the full list directly:
+
+```python
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "my.custom.app",
+    # arches-toolkit:installed-apps-start
+    # Managed by arches-toolkit sync-apps — do not edit between
+    # these markers. To remove an app, drop it from apps.yaml
+    # and re-run sync-apps.
+    "arches_controlled_lists",
+    "arches_her",
+    "arches_my_new_app",
+    # arches-toolkit:installed-apps-end
+]
+```
+
+Notes on behaviour:
+
+- **Idempotent.** Re-running `sync-apps` with the same apps.yaml regenerates
+  the section identically — no diff, no churn.
+- **Manual entries preserved.** Anything you write outside the markers is
+  left exactly as-is. If you want to control an Arches app's position in
+  the list or remove it from toolkit management, declare it outside the
+  markers and remove it from `apps.yaml`.
+- **Works with list or tuple form.** `INSTALLED_APPS = [...]` and
+  `INSTALLED_APPS = (...)` are both supported.
+- **Only the top-level literal is touched.** If your settings do
+  `if DEBUG: INSTALLED_APPS += [...]` below the main assignment, those
+  are left alone — they still run normally.
+- **Opt out** with `arches-toolkit sync-apps --no-installed-apps` if you'd
+  prefer to manage `INSTALLED_APPS` entirely by hand.
+
+The toolkit deliberately doesn't use a runtime-extension block (e.g.
+`try: INSTALLED_APPS += _MANAGED except NameError: ...`). That pattern
+would hide entries from static analysis and CI introspection tools that
+parse settings.py without executing it.
 
 ### Promoting from develop to release
 
