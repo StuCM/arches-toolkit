@@ -46,6 +46,20 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /venv/bin/python -e . ; \
     chown -R app:app /venv
 
+# Base-image-authoritative model: the base image installs Arches editable
+# from /opt/arches (with any docker/base/patches applied at base-image
+# build time). For that install to SURVIVE `uv sync` above, the base
+# image's arches version MUST match what the project's uv.lock resolves
+# to — otherwise uv sync replaces the editable install with the
+# lockfile's PyPI version, the editable pointer is lost, and
+# /opt/arches is orphaned (patches don't reach runtime).
+#
+# Keep them aligned by building the base image against a tag that matches
+# your lockfile's resolved version, e.g.
+#   ./docker/base/build.sh --arches-ref 8.1.2
+# See TASKS.md "Open design problem: pyproject/lockfile version skew vs
+# base-image arches" for the systemic tension.
+
 
 FROM build AS dev
 
