@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -103,11 +104,13 @@ def _run_arches_admin(parent: Path, name: str, package: str, image: str) -> None
         "-w", "/work",
         image,
         "sh", "-c",
+        f"printf '#!/bin/sh\\n' > /usr/local/bin/npm && chmod +x /usr/local/bin/npm && "
         f"mkdir -p /work/{name} && "
         f"arches-admin startproject {package} --directory {name} && "
         f"chown -R {uid_gid} /work/{name}",
+
     ]
-    typer.echo(f"+ {' '.join(cmd)}")
+    logging.getLogger(__name__).info(f"+ {' '.join(cmd)}")
     r = subprocess.run(cmd)
     if r.returncode != 0:
         raise typer.Exit(r.returncode)
