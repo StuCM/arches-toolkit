@@ -44,12 +44,21 @@ tests
 *.swo
 .DS_Store
 
-# Logs and local runtime state
+# Logs and local runtime state — match at any depth so a nested
+# <project>/media/build/ or <project>/uploadedfiles/ is excluded too.
 *.log
 logs/
+**/logs/
 uploadedfiles/
+**/uploadedfiles/
 frontend_configuration/
+**/frontend_configuration/
 static_root/
+**/static_root/
+# Webpack output: arches writes hashed chunks into <project>/media/build/.
+# Regenerated on every build; never ship it in the image.
+**/media/build/
+**/dist/
 
 # Secrets & local env — never ship these into an image context
 .env
