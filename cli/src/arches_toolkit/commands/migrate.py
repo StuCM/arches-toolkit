@@ -20,6 +20,7 @@ import tomlkit
 import typer
 
 from .. import apps_manifest as manifest_mod
+from .._constants import DEFAULT_TOOLKIT_IMAGE, DEFAULT_TOOLKIT_TAG
 from ..apps_manifest import AppEntry
 from . import init as init_cmd
 from . import sync_apps as sync_apps_cmd
@@ -365,8 +366,8 @@ def _execute(
             ctx.target,
             name=ctx.package,
             package=ctx.package,
-            toolkit_image="ghcr.io/flaxandteal/arches-toolkit",
-            toolkit_tag="latest-arches-stable-8.1.0",
+            toolkit_image=DEFAULT_TOOLKIT_IMAGE,
+            toolkit_tag=DEFAULT_TOOLKIT_TAG,
         )
     )
     typer.echo(init_cmd._write_dockerignore(ctx.target))

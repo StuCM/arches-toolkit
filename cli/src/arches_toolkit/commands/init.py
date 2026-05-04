@@ -19,6 +19,7 @@ from typing import Optional
 
 import typer
 
+from .._constants import DEFAULT_TOOLKIT_IMAGE, DEFAULT_TOOLKIT_TAG
 from .._util import package_data_path as _package_data_path
 from .._util import validate_name as _validate_name
 
@@ -151,11 +152,11 @@ def init(
         help="Where to create the project (default: ./<name>)",
     ),
     arches_toolkit_image: str = typer.Option(
-        "arches-toolkit-local-test", "--arches-toolkit-image",
+        DEFAULT_TOOLKIT_IMAGE, "--arches-toolkit-image",
         help="Base image to run arches-admin from + reference in .env",
     ),
     arches_toolkit_tag: str = typer.Option(
-        "latest", "--arches-toolkit-tag",
+        DEFAULT_TOOLKIT_TAG, "--arches-toolkit-tag",
         help="Tag of the toolkit image (paired with --arches-toolkit-image)",
     ),
     package: Optional[str] = typer.Option(

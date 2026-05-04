@@ -1,13 +1,17 @@
 # Dev overlay for compose.yaml. Use via `arches-toolkit dev`.
 
 x-arches-dev: &arches-dev
+  # Shared image name across all dev services so Compose builds one image,
+  # not one per service (web, worker, api, init, webpack — all identical).
+  image: ${PROJECT_IMAGE:-arches-project}:${PROJECT_TAG:-dev}
   build:
     context: .
     dockerfile: ${ARCHES_TOOLKIT_DOCKERFILE}
     target: dev
     args:
+      # Fallbacks; canonical values in cli/src/arches_toolkit/_constants.py.
       ARCHES_TOOLKIT_IMAGE: ${ARCHES_TOOLKIT_IMAGE:-ghcr.io/flaxandteal/arches-toolkit}
-      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.0}
+      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.2}
       PROJECT_NAME: ${PROJECT_NAME:?set in project .env}
       PROJECT_PACKAGE: ${PROJECT_PACKAGE:-${PROJECT_NAME}}
   environment:
@@ -175,7 +179,7 @@ services:
           exec npm run start
         '
     ports:
-      - "9000:9000"
+      - "8080:8080"
     restart: unless-stopped
 
 volumes:

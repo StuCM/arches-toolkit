@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
+# Fallbacks for direct `docker build` without an .env. Canonical values
+# live in cli/src/arches_toolkit/_constants.py — keep these in sync.
 ARG ARCHES_TOOLKIT_IMAGE=ghcr.io/flaxandteal/arches-toolkit
-ARG ARCHES_TOOLKIT_TAG=latest-arches-stable-8.1.0
+ARG ARCHES_TOOLKIT_TAG=latest-arches-stable-8.1.2
 
 FROM node:20-slim AS frontend
 

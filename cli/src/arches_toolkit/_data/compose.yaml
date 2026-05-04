@@ -9,8 +9,9 @@ x-arches: &arches
     dockerfile: ${ARCHES_TOOLKIT_DOCKERFILE}
     target: prod
     args:
+      # Fallbacks; canonical values in cli/src/arches_toolkit/_constants.py.
       ARCHES_TOOLKIT_IMAGE: ${ARCHES_TOOLKIT_IMAGE:-ghcr.io/flaxandteal/arches-toolkit}
-      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.0}
+      ARCHES_TOOLKIT_TAG: ${ARCHES_TOOLKIT_TAG:-latest-arches-stable-8.1.2}
       PROJECT_NAME: ${PROJECT_NAME:?set in project .env}
       PROJECT_PACKAGE: ${PROJECT_PACKAGE:-${PROJECT_NAME}}
   user: "1000:1000"
