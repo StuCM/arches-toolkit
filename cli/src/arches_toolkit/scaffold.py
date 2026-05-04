@@ -180,6 +180,45 @@ def _is_arches_app(dir_: Path) -> tuple[bool, str | None]:
     return False, None
 
 
+def _is_project(dir_: Path) -> str | None:
+    """Return PROJECT_PACKAGE iff ``dir_`` looks like a toolkit project root."""
+    if not dir_.is_dir():
+        return None
+    package = _read_env_var(dir_ / ".env", "PROJECT_PACKAGE")
+    if package and (dir_ / package / "settings.py").exists():
+        return package
+    candidate = dir_ / dir_.name / "settings.py"
+    if candidate.exists():
+        return dir_.name
+    return None
+
+
+def _walk_up(start: Path):
+    """Yield ``start`` and each parent up to the filesystem root."""
+    cur = start.resolve()
+    while True:
+        yield cur
+        if cur.parent == cur:
+            return
+        cur = cur.parent
+
+
+def _find_nearest_app(start: Path) -> tuple[Path, str] | None:
+    for d in _walk_up(start):
+        ok, package = _is_arches_app(d)
+        if ok and package:
+            return d, package
+    return None
+
+
+def _find_nearest_project(start: Path) -> tuple[Path, str] | None:
+    for d in _walk_up(start):
+        package = _is_project(d)
+        if package:
+            return d, package
+    return None
+
+
 def resolve_target(
     *,
     cwd: Path,
@@ -188,8 +227,12 @@ def resolve_target(
 ) -> Target:
     """Resolve where a ``create`` command should write.
 
-    Raises ``ValueError`` with a user-facing message if the context is
-    invalid (e.g. cwd is not a project, app dir is not an app).
+    Walks up from ``cwd`` to find the nearest Arches application or project
+    root. If both a project and an app are found along the path, the one
+    closer to ``cwd`` wins — running inside an app dir nested in a project
+    targets the app. Pass ``app_dir`` to override.
+
+    Raises ``ValueError`` with a user-facing message if no marker is found.
     """
     if app_dir is not None:
         root = app_dir.resolve()
@@ -208,25 +251,38 @@ def resolve_target(
             is_app=True,
         )
 
-    root = cwd.resolve()
-    package = _read_env_var(root / ".env", "PROJECT_PACKAGE")
-    if package is None:
-        # Fall back to a directory named after the cwd containing settings.py
-        candidate = root / root.name / "settings.py"
-        if candidate.exists():
-            package = root.name
-    if package is None or not (root / package / "settings.py").exists():
-        raise ValueError(
-            f"{root}: not a project (no PROJECT_PACKAGE in .env or "
-            "<package>/settings.py). Pass --app <dir> to target an application."
+    start = cwd.resolve()
+    app_hit = _find_nearest_app(start)
+    proj_hit = _find_nearest_project(start)
+
+    # Prefer whichever is deeper (closer to cwd). One must contain the other
+    # since both are ancestors of `start`, so is_relative_to settles ties.
+    pick_app = app_hit and (
+        proj_hit is None or app_hit[0].is_relative_to(proj_hit[0])
+    )
+    if pick_app:
+        root, package = app_hit
+        return Target(
+            root=root,
+            package=package,
+            arches_version=detect_arches_version(
+                explicit=arches_version, project_root=root
+            ),
+            is_app=True,
         )
-    return Target(
-        root=root,
-        package=package,
-        arches_version=detect_arches_version(
-            explicit=arches_version, project_root=root
-        ),
-        is_app=False,
+    if proj_hit:
+        root, package = proj_hit
+        return Target(
+            root=root,
+            package=package,
+            arches_version=detect_arches_version(
+                explicit=arches_version, project_root=root
+            ),
+            is_app=False,
+        )
+    raise ValueError(
+        f"{start}: not inside a toolkit project or Arches application — "
+        "cd into one, or pass --app <dir> to target an application."
     )
 
 

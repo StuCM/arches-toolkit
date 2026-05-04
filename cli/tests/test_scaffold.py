@@ -121,13 +121,44 @@ def test_resolve_target_app(tmp_path: Path):
 
 
 def test_resolve_target_errors_on_bare_dir(tmp_path: Path):
-    with pytest.raises(ValueError, match="not a project"):
+    with pytest.raises(ValueError, match="not inside a toolkit project"):
         scaffold.resolve_target(cwd=tmp_path, app_dir=None, arches_version="8.1")
 
 
 def test_resolve_target_errors_on_non_app_dir(tmp_path: Path):
     with pytest.raises(ValueError, match="not an Arches application"):
         scaffold.resolve_target(cwd=tmp_path, app_dir=tmp_path, arches_version="8.1")
+
+
+def test_resolve_target_walks_up_to_project(tmp_path: Path):
+    proj = _fake_project(tmp_path)
+    sub = proj / "deep" / "nested"
+    sub.mkdir(parents=True)
+    target = scaffold.resolve_target(cwd=sub, app_dir=None, arches_version="8.1")
+    assert target.is_app is False
+    assert target.root == proj
+    assert target.package == "mything"
+
+
+def test_resolve_target_walks_up_to_app(tmp_path: Path):
+    _fake_app(tmp_path)
+    sub = tmp_path / "arches_demo" / "widgets"
+    sub.mkdir(parents=True)
+    target = scaffold.resolve_target(cwd=sub, app_dir=None, arches_version="8.1")
+    assert target.is_app is True
+    assert target.root == tmp_path
+    assert target.package == "arches_demo"
+
+
+def test_resolve_target_app_inside_project_picks_app(tmp_path: Path):
+    proj = _fake_project(tmp_path)
+    app_root = proj / "vendor" / "arches-demo"
+    app_root.mkdir(parents=True)
+    _fake_app(app_root)
+    target = scaffold.resolve_target(cwd=app_root, app_dir=None, arches_version="8.1")
+    assert target.is_app is True
+    assert target.root == app_root
+    assert target.package == "arches_demo"
 
 
 # --------------------------------------------------------------------------- #
