@@ -166,17 +166,31 @@ def _read_env_var(env_path: Path, key: str) -> str | None:
 
 
 def _is_arches_app(dir_: Path) -> tuple[bool, str | None]:
-    """Return ``(True, package)`` iff ``dir_`` looks like an Arches application."""
+    """Return ``(True, package)`` iff ``dir_`` contains an Arches AppConfig.
+
+    The authoritative marker is ``is_arches_application = True`` in any
+    child package's ``apps.py`` — naming is convention (``arches_<name>`` is
+    common but not required, e.g. ``certificate_generator``).
+    """
     if not dir_.is_dir():
         return False, None
-    for child in dir_.iterdir():
-        if not child.is_dir() or not child.name.startswith("arches_"):
+    try:
+        children = list(dir_.iterdir())
+    except OSError:
+        return False, None
+    for child in children:
+        if child.name.startswith((".", "_")):
             continue
-        apps_py = child / "apps.py"
-        if apps_py.exists() and "is_arches_application" in apps_py.read_text(
-            encoding="utf-8", errors="ignore"
-        ):
-            return True, child.name
+        try:
+            if not child.is_dir():
+                continue
+            apps_py = child / "apps.py"
+            if apps_py.is_file() and "is_arches_application" in apps_py.read_text(
+                encoding="utf-8", errors="ignore"
+            ):
+                return True, child.name
+        except OSError:
+            continue
     return False, None
 
 

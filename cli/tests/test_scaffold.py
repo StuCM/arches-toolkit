@@ -150,6 +150,17 @@ def test_resolve_target_walks_up_to_app(tmp_path: Path):
     assert target.package == "arches_demo"
 
 
+def test_resolve_target_app_without_arches_prefix(tmp_path: Path):
+    pkg = tmp_path / "certificate_generator"
+    pkg.mkdir()
+    (pkg / "apps.py").write_text(
+        "class Cfg:\n    is_arches_application = True\n", encoding="utf-8"
+    )
+    target = scaffold.resolve_target(cwd=tmp_path, app_dir=None, arches_version="8.1")
+    assert target.is_app is True
+    assert target.package == "certificate_generator"
+
+
 def test_resolve_target_app_inside_project_picks_app(tmp_path: Path):
     proj = _fake_project(tmp_path)
     app_root = proj / "vendor" / "arches-demo"
