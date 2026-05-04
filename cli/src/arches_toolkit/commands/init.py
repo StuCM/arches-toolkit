@@ -64,14 +64,11 @@ DATABASES["default"]["USER"] = _os.environ.get("PGUSER", DATABASES["default"]["U
 DATABASES["default"]["PASSWORD"] = _os.environ.get("PGPASSWORD", DATABASES["default"]["PASSWORD"])
 DATABASES["default"]["NAME"] = _os.environ.get("PGDBNAME", DATABASES["default"]["NAME"])
 
-ELASTICSEARCH_HOSTS = [{{
-    "scheme": _os.environ.get("ESSCHEME", "http"),
-    "host": _os.environ.get("ESHOST", "localhost"),
-    "port": int(_os.environ.get("ESPORT", "9200")),
-}}]
-ELASTICSEARCH_CONNECTION_OPTIONS = {{"request_timeout": 30, "verify_certs": False}}
+ELASTICSEARCH_HOSTS[0]["scheme"] = _os.environ.get("ESSCHEME", ELASTICSEARCH_HOSTS[0]["scheme"])
+ELASTICSEARCH_HOSTS[0]["host"] = _os.environ.get("ESHOST", ELASTICSEARCH_HOSTS[0]["host"])
+ELASTICSEARCH_HOSTS[0]["port"] = int(_os.environ.get("ESPORT", ELASTICSEARCH_HOSTS[0]["port"]))
 
-CELERY_BROKER_URL = _os.environ.get("RABBITMQ_URL", CELERY_BROKER_URL or "")
+CELERY_BROKER_URL = _os.environ.get("RABBITMQ_URL", CELERY_BROKER_URL)
 """
 
 GITIGNORE_LINES = [
