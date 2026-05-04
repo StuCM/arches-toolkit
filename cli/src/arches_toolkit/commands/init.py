@@ -21,6 +21,8 @@ import typer
 
 from .._constants import DEFAULT_TOOLKIT_IMAGE, DEFAULT_TOOLKIT_TAG
 from .._util import package_data_path as _package_data_path
+from .._util import to_python_identifier as _to_python_identifier
+from .._util import validate_external_name as _validate_external_name
 from .._util import validate_name as _validate_name
 
 # Marker comment so re-running init is idempotent and human-greppable.
@@ -44,7 +46,7 @@ CELERY_APP={package}.celery
 
 PGUSER=postgres
 PGPASSWORD=postgres
-PGDBNAME={name}
+PGDBNAME={dbname}
 """
 
 SETTINGS_OVERRIDES = """\
@@ -88,8 +90,12 @@ GITIGNORE_LINES = [
 ]
 
 
-def _run_arches_admin(parent: Path, name: str, image: str) -> None:
+def _run_arches_admin(parent: Path, name: str, package: str, image: str) -> None:
     uid_gid = f"{os.getuid()}:{os.getgid()}"
+    # Django's startproject takes <name> (must be a Python identifier) and
+    # an optional --directory (any path; must exist). Pass `package` as the
+    # name and the kebab-or-snake `name` as the directory so kebab-case
+    # project dirs are supported. Pre-create the dir — Django requires it.
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{parent}:/work",
@@ -97,7 +103,9 @@ def _run_arches_admin(parent: Path, name: str, image: str) -> None:
         "-w", "/work",
         image,
         "sh", "-c",
-        f"arches-admin startproject {name}; chown -R {uid_gid} /work/{name}",
+        f"mkdir -p /work/{name} && "
+        f"arches-admin startproject {package} --directory {name} && "
+        f"chown -R {uid_gid} /work/{name}",
     ]
     typer.echo(f"+ {' '.join(cmd)}")
     r = subprocess.run(cmd)
@@ -146,7 +154,7 @@ def _ensure_gitignore(target: Path) -> str:
 
 
 def init(
-    name: str = typer.Argument(..., help="Project name (lowercase, valid Python identifier)"),
+    name: str = typer.Argument(..., help="Project name (lowercase; kebab-case or snake_case)"),
     target_dir: Optional[Path] = typer.Option(
         None, "--target-dir", "-d",
         help="Where to create the project (default: ./<name>)",
@@ -169,8 +177,11 @@ def init(
     """Scaffold a new Arches project ready for ``arches-toolkit dev``."""
     if shutil.which("docker") is None:
         raise typer.BadParameter("docker not found on PATH")
-    name = _validate_name(name)
-    package = _validate_name(package or name)
+    # name can be kebab- or snake-case (used as dir/distribution name);
+    # package must be a Python identifier (snake_case). Default-derive by
+    # converting hyphens to underscores.
+    name = _validate_external_name(name, what="project name")
+    package = _validate_name(package or _to_python_identifier(name), what="package")
 
     target = (target_dir or Path.cwd() / name).resolve()
     parent = target.parent
@@ -183,7 +194,7 @@ def init(
 
     image_ref = f"{arches_toolkit_image}:{arches_toolkit_tag}"
     if not target.exists():
-        _run_arches_admin(parent, target.name, image_ref)
+        _run_arches_admin(parent, target.name, package, image_ref)
     else:
         typer.echo(f"reusing existing dir {target}")
 
@@ -200,6 +211,7 @@ def init(
             target,
             name=name,
             package=package,
+            dbname=name.replace("-", "_"),
             toolkit_image=arches_toolkit_image,
             toolkit_tag=arches_toolkit_tag,
         )
