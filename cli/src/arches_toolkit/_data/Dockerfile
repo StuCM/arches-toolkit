@@ -35,10 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app uv.lock* README.md* ./
 
+# Base-image-authoritative: skip arches in uv sync so the base image's
+# patched editable install at /opt/arches survives. Without --no-install-package,
+# uv reconciles the env to uv.lock and replaces the editable install with the
+# lockfile's PyPI version, orphaning /opt/arches and losing the patches.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
     if [ -f uv.lock ]; then \
-        uv sync --frozen --no-install-project --python /venv/bin/python; \
+        uv sync --frozen --no-install-project --python /venv/bin/python \
+            --no-install-package arches; \
     fi
 
 COPY --chown=app:app . /app
@@ -48,19 +53,19 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /venv/bin/python -e . ; \
     chown -R app:app /venv
 
-# Base-image-authoritative model: the base image installs Arches editable
-# from /opt/arches (with any docker/base/patches applied at base-image
-# build time). For that install to SURVIVE `uv sync` above, the base
-# image's arches version MUST match what the project's uv.lock resolves
-# to — otherwise uv sync replaces the editable install with the
-# lockfile's PyPI version, the editable pointer is lost, and
-# /opt/arches is orphaned (patches don't reach runtime).
-#
-# Keep them aligned by building the base image against a tag that matches
-# your lockfile's resolved version, e.g.
-#   ./docker/base/build.sh --arches-ref 8.1.2
-# See TASKS.md "Open design problem: pyproject/lockfile version skew vs
-# base-image arches" for the systemic tension.
+# Warn (don't fail) if the project's locked arches version diverges from the
+# base image's installed version. Base wins at runtime, so a project lock at
+# a newer release will silently run on the older base — surface that.
+RUN set -eu; \
+    base_ver="$(/venv/bin/python -c 'import arches; print(arches.__version__)' 2>/dev/null || echo unknown)"; \
+    locked_ver="$(/venv/bin/python -c "import tomllib,sys; \
+data=tomllib.load(open('uv.lock','rb')) if __import__('os').path.exists('uv.lock') else {}; \
+pkgs=data.get('package', []); \
+print(next((p['version'] for p in pkgs if p.get('name')=='arches'), 'unknown'))" 2>/dev/null || echo unknown)"; \
+    if [ "$base_ver" != "$locked_ver" ] && [ "$locked_ver" != "unknown" ]; then \
+        echo "WARNING: arches version skew — base image has $base_ver, uv.lock pins $locked_ver." >&2; \
+        echo "         Base wins at runtime. Rebuild base with --arches-ref $locked_ver to align." >&2; \
+    fi
 
 
 FROM build AS dev

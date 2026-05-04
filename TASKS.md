@@ -264,63 +264,29 @@ Concrete proof-of-concept for the patch workflow. Solves the non-root-write prob
 
 ---
 
-## Open design problem: pyproject/lockfile version skew vs base-image arches
+## Design decision: pyproject/lockfile version skew vs base-image arches
 
-**Status:** current design is base-image-authoritative (chosen for pilot);
-the skew risk below needs a design session before the toolkit is widely adopted.
+**Status:** resolved — base-image-authoritative, enforced.
 
-**Current design.** The base image (`docker/base/build.sh`) clones Arches
-from a configurable git ref (default `stable/8.1.0`), applies patches from
-`docker/base/patches/*.patch`, and editable-installs the result to `/venv`.
-The project Dockerfile inherits the base and runs `uv sync --frozen
---no-install-project`, which leaves the editable install in place — `uv
-sync` treats an already-installed editable package as satisfying any
-version constraint in the lockfile. So the patched, base-image-built
-Arches is what runs at runtime, and `docker/base/patches/*.patch` reach
-the runtime Python process as intended.
+The project Dockerfile runs `uv sync --frozen --no-install-project
+--no-install-package arches`. Excluding `arches` from the sync keeps the
+patched editable install at `/opt/arches` (placed there by the base image)
+intact; without the exclusion, uv reconciles the env to `uv.lock` and
+replaces the editable install with the lockfile's PyPI version, orphaning
+`/opt/arches` and losing the patches at runtime.
 
-**The tension.** A project's `pyproject.toml` + `uv.lock` can resolve
-`arches` and its ecosystem (`arches-querysets`, `arches-controlled-lists`,
-etc.) to versions that assume a NEWER Arches than the base image shipped.
-Example: `arches-querysets` imports `from arches import VERSION`; that
-attribute may not exist in the base image's older Arches ref. At import
-time, the ecosystem app crashes with `ImportError: cannot import name
-'VERSION'`. Because `uv sync` doesn't replace the editable install, there's
-no warning that the skew exists — the project boots into a state where
-Arches is 8.1.0 but its ecosystem expects 8.1.2 APIs.
+Build-time check: the Dockerfile compares `arches.__version__` from the
+base image against the `arches` version pinned in `uv.lock` and emits a
+warning if they diverge. Base wins at runtime; the warning surfaces drift
+so users know to rebuild the base image (`docker/base/build.sh
+--arches-ref <version>`) or accept the skew.
 
-**Mitigations today:**
-
-- Keep the base image ref reasonably recent — if `stable/8.1.0` has moved
-  on, rebuild the base image to pick up the branch's latest commit.
-- Users who hit this skew should tighten their `pyproject.toml` arches
-  constraint to match the base image's ref (e.g. `arches==8.1.2`), or bump
-  the base image.
-- The ARCHES_SRC overlay is for live-editing arches-core only; the clone
-  needs to match the base image's ref or you hit the same ImportError in
-  a different way.
-
-**Options for a better long-term answer:**
-
-1. **Publish patched arches as a wheel to an internal index.** `pyproject.toml`
-   pins `arches @ private-index/arches==8.1.2+fat.1`. uv sync installs the
-   patched wheel. Clean but needs infra (private index) and a release
-   process for wheels. Makes lockfile + runtime coherent again.
-2. **Publish a maintained F&T fork of arches on git, pin via `source: git`.**
-   `pyproject.toml`: `"arches @ git+https://github.com/flaxandteal/arches.git@fat-patches"`.
-   Same reproducibility, lives on GitHub, no private index. Tension with
-   PLAN.md's stated goal of *retiring* the F&T fork in favour of upstream
-   + reviewable patches.
-3. **Detect-and-warn at sync-apps time.** If the project's lockfile
-   arches version doesn't match the base image's baked ref (readable from
-   the image metadata or an env var set at base-image build), `sync-apps`
-   emits a loud warning with the tightening suggestion.
-4. **Upstream aggressively**, so there are no patches. Arches core ships
-   every feature we'd otherwise patch. Not controllable from our side.
-
-**Also:** closely related to the scaffolded-local-apps problem below —
-both ask "how does the toolkit reconcile non-PyPI Python code into the
-runtime venv" — solving one well may illuminate the other.
+Ecosystem packages (`arches-querysets`, `arches-controlled-lists`, etc.)
+are *not* base-managed — they install from the project's lockfile, in
+either release or develop mode per `apps.yaml`. Skew between those and
+the base arches version is still possible (e.g. `arches-querysets` imports
+`from arches import VERSION` which may be missing on older base refs);
+the recommended response is to bump the base image ref.
 
 ---
 
