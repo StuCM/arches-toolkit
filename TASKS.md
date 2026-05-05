@@ -290,6 +290,56 @@ the recommended response is to bump the base image ref.
 
 ---
 
+## Open design problem: ARCHES_SRC bind mount shadows base-image patches
+
+**Status:** unresolved. Affects `arches-toolkit dev` with `ARCHES_SRC` set.
+
+The `ARCHES_SRC` overlay (`compose.arches-src.yaml`) bind-mounts a host
+clone of arches over `/opt/arches`. Because bind mounts replace directory
+contents, the patches `docker/base/patches/*.patch` applied at base-image
+build time are no longer visible at runtime — Python imports the host
+clone's files, not the patched copy.
+
+**Why it matters.** Anyone using ARCHES_SRC to live-edit arches loses any
+toolkit patch that touches code they're editing. Patches authored *for*
+the toolkit (e.g. the `frontend_configuration` env-var fix) silently
+disappear, and behaviour drifts from the baked image. Easy to miss until
+you observe a setting being ignored.
+
+**Workaround today.** Manually apply patches in the host clone:
+
+```sh
+cd $ARCHES_SRC
+git am /path/to/arches-toolkit/docker/base/patches/*.patch
+```
+
+Brittle: needs to be redone on every rebase, and `git am` fails noisily
+on partial overlap.
+
+**Options for a better answer:**
+
+1. **Doc-only.** Document the contract: "ARCHES_SRC means *your* clone is
+   authoritative; apply patches yourself." Cheapest. Relies on user
+   discipline.
+2. **Auto-apply at container start.** A startup hook runs `git apply
+   --check` then `git am` against the bind-mounted source. Idempotent if
+   already applied; fails fast if conflicting. Mutates the user's host
+   clone, which is surprising.
+3. **Patch overlay, not source overlay.** Don't bind-mount over
+   `/opt/arches`; instead mount the host clone at `/opt/arches-host` and
+   use a Python `.pth` shim that imports from the host clone but layers
+   patched modules from the baked image where they exist. Cleanest
+   semantics, fiddly to implement.
+4. **Eliminate patches.** Upstream every patch the toolkit carries so
+   there's nothing to lose. The end goal but not on a near-term timeline.
+
+Closely related to "pyproject/lockfile version skew" above — both ask
+"who owns the runtime arches code." The base-image-authoritative model
+is settled for the lockfile axis; this is the same question for the
+bind-mount axis.
+
+---
+
 ## Open design problem: scaffolded local-only apps
 
 **Status:** unresolved. Needs a design session before picking an approach.

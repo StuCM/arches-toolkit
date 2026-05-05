@@ -36,14 +36,14 @@ COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app uv.lock* README.md* ./
 
 # Base-image-authoritative: skip arches in uv sync so the base image's
-# patched editable install at /opt/arches survives. Without --no-install-package,
-# uv reconciles the env to uv.lock and replaces the editable install with the
-# lockfile's PyPI version, orphaning /opt/arches and losing the patches.
+# patched editable install at /opt/arches survives, and use --inexact so
+# arches's transitive deps (django, psycopg2, …) installed by the base
+# aren't pruned for being absent from the project's uv.lock.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
     if [ -f uv.lock ]; then \
         uv sync --frozen --no-install-project --python /venv/bin/python \
-            --no-install-package arches; \
+            --no-install-package arches --inexact; \
     fi
 
 COPY --chown=app:app . /app
