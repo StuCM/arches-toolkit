@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:24.04 AS arches-src
+FROM debian:12-slim AS arches-src
 
 ARG ARCHES_REPO=https://github.com/archesproject/arches.git
 ARG ARCHES_REF=stable/8.1.2
@@ -34,7 +34,7 @@ RUN set -eux; cd /src/arches; \
 RUN rm -rf /src/arches/.git
 
 
-FROM ubuntu:24.04 AS base
+FROM python:3.12-slim-bookworm AS base
 
 ARG ARCHES_REF=stable/8.1.2
 
@@ -44,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VIRTUAL_ENV=/venv \
     PATH=/venv/bin:/usr/local/bin:/usr/bin:/bin \
     UV_LINK_MODE=copy \
-    UV_PYTHON=/usr/bin/python3.12 \
+    UV_PYTHON=/usr/local/bin/python3.12 \
     ARCHES_REF=${ARCHES_REF}
 
 # -dev headers are here because psycopg2 / python-ldap compile from source on
@@ -61,18 +61,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libldap2-dev \
         libpq-dev \
         libsasl2-dev \
-        passwd \
-        python3.12 \
-        python3.12-dev \
-        python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
-# ubuntu:24.04 ships with a default ubuntu:1000 account; remove it so app can
-# take uid 1000. Full paths because PATH omits /usr/sbin.
-RUN /usr/sbin/userdel --remove ubuntu 2>/dev/null || true && \
-    /usr/sbin/groupadd --system --gid 1000 app && \
+RUN /usr/sbin/groupadd --system --gid 1000 app && \
     /usr/sbin/useradd  --system --uid 1000 --gid 1000 \
              --home-dir /home/app --create-home --shell /bin/bash app
 
@@ -87,7 +80,7 @@ COPY --from=arches-src --chown=app:app /src/arches /opt/arches
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
-    uv venv --python /usr/bin/python3.12 /venv; \
+    uv venv --python /usr/local/bin/python3.12 /venv; \
     uv pip install --python /venv/bin/python --upgrade pip setuptools wheel; \
     uv pip install --python /venv/bin/python -e /opt/arches; \
     chown -R app:app /venv
