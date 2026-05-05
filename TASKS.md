@@ -290,6 +290,37 @@ the recommended response is to bump the base image ref.
 
 ---
 
+## Open issue: web boots before webpack-stats.json exists (cold-start race)
+
+**Status:** parked — only bites on first `arches-toolkit dev` from a clean
+state, not on the steady-state HMR loop.
+
+In dev, `web` inherits depends_on from `compose.yaml` (db/es/rabbitmq/init)
+but not from the webpack service (dev-only, defined in `compose.dev.yaml`).
+On a cold compose up, `web` can serve a request before webpack has emitted
+`/app/webpack/webpack-stats.json`, producing a confusing
+`Error reading … webpack-stats.json` from django-webpack-loader. A refresh
+30-60s later works.
+
+Why it's parked: once containers are up they stay up — HMR handles file
+changes and you rarely restart. The race surfaces mostly on a new
+contributor's first run.
+
+Fix when revisited:
+
+1. Add a healthcheck to the `webpack` service that confirms
+   `webpack-stats.json` exists (`test -f /app/webpack/webpack-stats.json`),
+   with generous retries to cover initial compile (1-2 min).
+2. Redefine `web` (and `api`) `depends_on` in `compose.dev.yaml` to
+   include `webpack: condition: service_healthy` plus the existing
+   db/es/rabbitmq/init entries. Don't rely on cross-file depends_on merge
+   semantics — they vary by compose version.
+
+Cost: dev cold start gets ~30-60s slower before the page is reachable.
+Worth it for the onboarding-moment clarity.
+
+---
+
 ## Open design problem: ARCHES_SRC bind mount shadows base-image patches
 
 **Status:** unresolved. Affects `arches-toolkit dev` with `ARCHES_SRC` set.
