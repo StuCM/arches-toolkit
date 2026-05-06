@@ -148,6 +148,11 @@ services:
       - -euxc
       - |
         python -m debugpy --listen 0.0.0.0:5678 manage.py runserver 0.0.0.0:8000
+    # Wait for webpack's first compile so template rendering doesn't 500 on
+    # missing webpack-stats.json. Merges with base depends_on (db/es/rabbitmq/init).
+    depends_on:
+      webpack:
+        condition: service_healthy
     ports:
       - "8000:8000"
       - "5678:5678"
@@ -159,6 +164,9 @@ services:
   api:
     <<: *arches-dev
     command: ["python", "manage.py", "runserver", "0.0.0.0:8001"]
+    depends_on:
+      webpack:
+        condition: service_healthy
     ports:
       - "8001:8001"
 
@@ -203,6 +211,15 @@ services:
         '
     ports:
       - "8080:8080"
+    # `web` depends on this healthcheck — gates request serving until the first
+    # webpack compile finishes, so users don't hit `webpack-stats.json missing`
+    # 500s on a fresh `dev`.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q '\"status\":\"done\"' /app/webpack/webpack-stats.json 2>/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 30s
     restart: unless-stopped
 
 volumes:
