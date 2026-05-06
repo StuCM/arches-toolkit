@@ -26,6 +26,7 @@ x-arches: &arches
     PGUSER: ${PGUSER:-postgres}
     PGPASSWORD: ${PGPASSWORD:-postgres}
     PGDBNAME: ${PGDBNAME:-arches}
+    ESSCHEME: http
     ESHOST: elasticsearch
     ESPORT: "9200"
     RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672//
@@ -121,8 +122,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    # migrate triggers ArchesAppConfig.ready() which writes the
-    # frontend_configuration volume as a side-effect. No explicit call needed.
+    # System Settings seed runs only on a fresh DB; setup-db is the destructive
+    # reset path and is never invoked from here. See docs/compose-deep-dive.md.
     command:
       - sh
       - -euxc
@@ -130,6 +131,25 @@ services:
         python manage.py migrate --noinput
         python manage.py createcachetable
         python manage.py collectstatic --noinput
+        python manage.py es setup_indexes
+        python <<'PY'
+        import os, django
+        django.setup()
+        from django.conf import settings
+        from django.core.management import call_command
+        from arches.app.models.models import GraphModel
+        SYSTEM_SETTINGS_GRAPHID = "ff623370-fa12-11e6-b98b-6c4008b05c4c"
+        if GraphModel.objects.filter(graphid=SYSTEM_SETTINGS_GRAPHID).exists():
+            print("system settings graph present; skipping seed")
+        else:
+            base = os.path.join(settings.ROOT_DIR, "db", "system_settings")
+            call_command("packages", operation="import_graphs",
+                         source=os.path.join(base, "Arches_System_Settings_Model.json"))
+            call_command("graph", operation="publish")
+            call_command("packages", operation="import_business_data",
+                         source=os.path.join(base, "Arches_System_Settings.json"),
+                         overwrite="overwrite")
+        PY
 
   web:
     <<: *arches

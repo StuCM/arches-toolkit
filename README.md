@@ -26,13 +26,11 @@ arches-toolkit --version
 arches-toolkit init mything          # scaffolds via arches-admin + writes .env, .dockerignore, settings.py overrides
 cd mything
 arches-toolkit dev --build           # first run: builds project image, starts stack
+                                     # init seeds ES indexes + System Settings on a fresh DB
                                      # (watch: http://localhost:8000)
-arches-toolkit setup-db              # ONE-TIME: setup_db, ES indexes, system-settings resource
-                                     # → /settings/ now works, /search/ now works
-                                     # add --dev-users to seed admin/admin; --yes to skip confirm
 ```
 
-After that, stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build`, no setup-db — their work is persisted in volumes).
+`/settings/` and `/search/` work straight after the first `dev`. To seed test users (admin/admin etc.), run `arches-toolkit setup-db --dev-users` — note this is destructive (full DB rebuild). Stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build` — work is persisted in volumes).
 
 ### Daily development
 
@@ -194,7 +192,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
 | `arches-toolkit create <kind> <name>` | Scaffold a widget / plugin / component / app / etc. (see [docs/create.md](docs/create.md)) |
 | `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
-| `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive, one-time**: `setup_db --force` to seed DB + ES + system settings. `--dev-users` seeds test accounts (admin/admin); `--yes` skips the confirm |
+| `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml` + `compose.apps.yaml` from `apps.yaml` |
 | `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |

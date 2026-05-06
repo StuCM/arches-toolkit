@@ -70,7 +70,7 @@ All four are healthchecked; init and Arches services `depends_on: service_health
 
 | Service | Role | Writes to fs? | Command |
 |---|---|---|---|
-| `init` | One-shot setup | Yes (rw mounts) | `migrate` → `createcachetable` (→ `collectstatic` in prod). Dev wraps this in a warm-start probe — see [Warm-start probe](#warm-start-probe). |
+| `init` | One-shot setup | Yes (rw mounts) | `migrate` → `createcachetable` (→ `collectstatic` in prod) → `es setup_indexes` → conditional System Settings seed. Dev wraps this in a warm-start probe — see [Warm-start probe](#warm-start-probe) and [First-boot seed](#first-boot-seed). |
 | `web` | HTTP (user-facing) | No (ro peers) | `gunicorn` (prod) / `runserver + debugpy` (dev) |
 | `api` | HTTP (API — separate port/worker pool) | No | `gunicorn` (prod) / `runserver` (dev) |
 | `worker` | Celery worker | No | `celery worker` |
@@ -235,6 +235,40 @@ The probe connects with the same `PG*` env vars the Django app would use and run
 **Known tradeoff:** if you add a new Django migration file in code, the probe still says "initialized" and skips it. To apply: `arches-toolkit manage migrate` explicitly, or wipe via `setup-db` if it's safe to lose data. Not dangerous — just silent. The original arches-quartz entrypoint had the same property.
 
 **Prod keeps the always-run init** (see [compose.yaml:128-134](../cli/src/arches_toolkit/_data/compose.yaml#L128-L134)). In prod the expensive step is `collectstatic`, which wants a different gate (source-mtime stamp), and prod restarts are rare enough that the extra few seconds don't justify the added path.
+
+### First-boot seed
+
+After `migrate`/`createcachetable`, init runs two more steps so a fresh project is usable straight from `arches-toolkit dev` — no follow-up `setup-db` required:
+
+1. **`python manage.py es setup_indexes`** — creates `<prefix>_terms`, `<prefix>_concepts`, `<prefix>_resources` if absent. Arches calls these via `SearchEngine.create_index(..., ignore_status=400)`, so re-running on an existing cluster is a no-op.
+2. **System Settings seed** — checks `GraphModel` for the System Settings graphid (`ff623370-fa12-11e6-b98b-6c4008b05c4c`); if missing, imports `Arches_System_Settings_Model.json`, publishes the graph, and imports `Arches_System_Settings.json` with `overwrite=overwrite`. If the row is present, the step prints "system settings graph present; skipping seed" and exits.
+
+Both branches live in [compose.yaml](../cli/src/arches_toolkit/_data/compose.yaml) (prod path) and [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) (cold-start branch of the warm-start probe). The dev overlay's warm-start branch skips them — once seeded, they don't need re-checking.
+
+#### Why this is here, not in `setup-db`
+
+`arches-toolkit setup-db` runs `setup_db --force`, which **drops and recreates the database**. That's the right tool for "wipe my project" but the wrong tool for "this is the first time I'm starting this project." Before this change, the bootstrap was a two-command dance:
+
+```
+arches-toolkit dev          # stack comes up, /settings/ 500s on missing graph
+arches-toolkit setup-db     # destructive wipe + reseed
+```
+
+New users hit `/settings/` or `/search/` immediately after `dev`, got a 500, and the only documented fix was a destructive command. Splitting the seed into idempotent steps gated by presence checks lets `dev` alone produce a working stack while keeping `setup-db` as the explicit "wipe and rebuild" path it was always meant to be.
+
+#### Why presence checks rather than always-run
+
+`packages -o import_graphs` on an existing graphid raises `IntegrityError` on the PK; `import_business_data` with `overwrite=overwrite` is safe to repeat but pointlessly slow. Gating on `GraphModel.objects.filter(graphid=...).exists()` is a cheap single-row lookup and avoids both the noisy failure and the wasted work.
+
+#### Why this graphid is hardcoded
+
+The System Settings graph has had the UUID `ff623370-fa12-11e6-b98b-6c4008b05c4c` since Arches 4 and is fixed in `Arches_System_Settings_Model.json`. Reading it from the JSON at boot time would be more "correct" but adds I/O and parse cost for no real benefit — if upstream ever rotates this UUID, the seed step will run a second time on existing projects and fail on the IntegrityError above. That's a one-line fix when (if) it happens.
+
+#### What this does **not** auto-run
+
+- **Adding test users** (`add_test_users`). Still requires `arches-toolkit setup-db --dev-users`.
+- **Reindexing existing data** (`es reindex_database`). Indexes are created empty; populating them is a project-data concern, not a bootstrap one.
+- **Custom indexes from `ELASTICSEARCH_CUSTOM_INDEXES`**. Already covered by `setup_indexes` (it iterates the setting), but the project must register them via `add_index` if they were added later.
 
 ### Postgres tuning
 

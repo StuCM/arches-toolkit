@@ -7,10 +7,12 @@ you're most likely to be in when the DB schema is missing.
 
 This is **destructive**: it drops and rebuilds the database, deletes and
 re-creates Elasticsearch indexes, then loads Arches' default system-settings
-graph and data so ``/settings/`` works.
+graph and data.
 
-Run once after the first ``arches-toolkit dev`` brings the stack up. Re-run
-only when you genuinely want to wipe the project's data.
+A fresh project no longer needs this step — the ``init`` compose service runs
+``es setup_indexes`` and seeds System Settings idempotently on first boot
+(see docs/compose-deep-dive.md → "First-boot seed"). Run ``setup-db`` only
+when you genuinely want to wipe the project's data.
 """
 
 from __future__ import annotations
