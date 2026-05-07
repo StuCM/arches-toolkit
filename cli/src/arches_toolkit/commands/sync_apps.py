@@ -43,8 +43,23 @@ def _canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _release_dep_spec(entry: AppEntry) -> str:
-    """Render a PEP 508 dependency string for a release-mode entry."""
+DEFAULT_DEVELOP_REF = "main"
+
+
+def _dep_spec(entry: AppEntry) -> str:
+    """Render a PEP 508 dependency string for any pyproject-bound app entry.
+
+    develop-mode apps render as ``pkg @ git+repo@ref`` regardless of the
+    ``source`` field — the source records where the app *came from* but at
+    install time develop is always a git checkout. ``ref`` defaults to
+    ``main`` when absent. Locally-cloned develop apps get force-reinstalled
+    editable from /workspace by `arches-toolkit install` after this base
+    install lands; multi-dev colleagues with no clone get the team's branch
+    tip from the same pyproject entry.
+    """
+    if entry.mode == "develop":
+        ref = entry.ref or DEFAULT_DEVELOP_REF
+        return f"{entry.package} @ git+{entry.repo}@{ref}"
     if entry.source == "git":
         url = f"git+{entry.repo}"
         if entry.ref:
@@ -118,8 +133,14 @@ def _dep_package_name(spec: str) -> str:
     return s.strip()
 
 
-def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
-    """Update pyproject.toml in place. Returns a status string for logging."""
+def _sync_pyproject(apps: list[AppEntry], project_root: Path) -> str:
+    """Update pyproject.toml in place. Returns a status string for logging.
+
+    Both release and develop apps go in pyproject — develop entries render
+    as ``pkg @ git+repo@ref`` so a fresh dev with no local clone still gets
+    the team's pushed branch tip. The install command does the editable
+    override for clones that exist locally.
+    """
     pyproject_path = project_root / PYPROJECT_FILENAME
     if not pyproject_path.exists():
         raise typer.BadParameter(
@@ -131,7 +152,7 @@ def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
     deps = _project_deps_array(doc)
     previously_managed = {_canonical_name(n) for n in _read_managed(doc)}
     desired_specs = {
-        _canonical_name(entry.package): _release_dep_spec(entry) for entry in release_apps
+        _canonical_name(entry.package): _dep_spec(entry) for entry in apps
     }
     desired_names = set(desired_specs)
 
@@ -158,7 +179,7 @@ def _sync_pyproject(release_apps: list[AppEntry], project_root: Path) -> str:
         new_deps.multiline(True)
     doc["project"]["dependencies"] = new_deps
 
-    _write_managed(doc, sorted({entry.package for entry in release_apps}))
+    _write_managed(doc, sorted({entry.package for entry in apps}))
 
     new_text = tomlkit.dumps(doc)
     if new_text == original_text:
@@ -426,10 +447,10 @@ def sync_apps(
     manifest: AppsManifest = manifest_mod.load(manifest_path)
     release = list(manifest_mod.iter_release(manifest))
     develop = list(manifest_mod.iter_develop(manifest))
-    # Release apps install from pyproject; develop apps install editable from
-    # /workspace at `arches-toolkit install` time, so they stay out of pyproject
-    # to keep uv lock honest about what's resolvable from external sources.
-    typer.echo(_sync_pyproject(release, project_root))
+    # All apps go in pyproject so a fresh dev can install everything from the
+    # locked sources. Develop apps render as `pkg @ git+repo@ref`; install
+    # then overrides with editable from /workspace where a clone exists.
+    typer.echo(_sync_pyproject(release + develop, project_root))
     legacy_status = _remove_legacy_compose_apps(project_root)
     if legacy_status:
         typer.echo(legacy_status)
@@ -443,5 +464,5 @@ def sync_apps(
 __all__ = [
     "sync_apps",
     "_sync_pyproject",
-    "_release_dep_spec",
+    "_dep_spec",
 ]

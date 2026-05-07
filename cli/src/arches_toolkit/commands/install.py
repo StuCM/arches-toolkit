@@ -51,19 +51,31 @@ def _web_is_running(project_root: Path) -> bool:
     return "web" in result.stdout.split()
 
 
-def _build_install_script(develop_apps: list[manifest_mod.AppEntry]) -> str:
-    """Shell script body that installs project + each develop app editable."""
+def _build_install_script(
+    develop_apps: list[manifest_mod.AppEntry],
+    project_root: Path,
+) -> str:
+    """Shell script body that installs the project + editable overrides.
+
+    The base ``uv pip install -e .`` covers all apps in pyproject — release
+    apps and develop apps alike (develop renders as ``pkg @ git+repo@ref``).
+    For each develop app where a sibling clone exists locally, force-reinstall
+    editable from ``/workspace/<dir>`` so edits are live. Develop apps with
+    no local clone are left as the from-git install — that's the expected
+    state for colleagues who haven't switched to working on this app yet.
+    """
     lines = [
         "set -eux",
-        # Project + release apps via pyproject; covers everything in
-        # [project.dependencies], including git-source release apps.
         "uv pip install --python /venv/bin/python --prerelease=allow -e .",
     ]
+    workspace_root = project_root.resolve().parent
     for entry in develop_apps:
         dirname = develop_repo_dirname(entry)
+        if not (workspace_root / dirname).exists():
+            continue
         lines.append(
             "uv pip install --python /venv/bin/python --prerelease=allow "
-            f"-e /workspace/{dirname}"
+            f"--force-reinstall -e /workspace/{dirname}"
         )
     return "\n".join(lines)
 
@@ -107,7 +119,7 @@ def install(
     manifest = manifest_mod.load(manifest_path)
     develop = list(manifest_mod.iter_develop(manifest))
 
-    script = _build_install_script(develop)
+    script = _build_install_script(develop, project_root)
 
     web_up = _web_is_running(project_root)
     _run_install(project_root, script, web_up=web_up)

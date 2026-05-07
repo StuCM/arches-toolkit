@@ -14,7 +14,7 @@ from arches_toolkit.commands.sync_apps import (
     LEGACY_COMPOSE_APPS_FILENAME,
     _find_settings_path,
     _python_module_name,
-    _release_dep_spec,
+    _dep_spec,
     _remove_legacy_compose_apps,
     _sync_installed_apps,
     _sync_pyproject,
@@ -87,21 +87,21 @@ def test_python_module_name_already_underscore_unchanged():
 
 
 # --------------------------------------------------------------------------- #
-# _release_dep_spec
+# _dep_spec
 # --------------------------------------------------------------------------- #
 
 
-def test_release_dep_spec_pypi_with_version():
+def test_dep_spec_pypi_with_version():
     entry = AppEntry(package="arches-foo", source="pypi", version=">=1.2", mode="release")
-    assert _release_dep_spec(entry) == "arches-foo>=1.2"
+    assert _dep_spec(entry) == "arches-foo>=1.2"
 
 
-def test_release_dep_spec_pypi_bare_version_pins_exact():
+def test_dep_spec_pypi_bare_version_pins_exact():
     entry = AppEntry(package="arches-foo", source="pypi", version="1.2.3", mode="release")
-    assert _release_dep_spec(entry) == "arches-foo==1.2.3"
+    assert _dep_spec(entry) == "arches-foo==1.2.3"
 
 
-def test_release_dep_spec_git_with_ref():
+def test_dep_spec_git_with_ref():
     entry = AppEntry(
         package="arches-foo",
         source="git",
@@ -109,9 +109,43 @@ def test_release_dep_spec_git_with_ref():
         ref="v1.2.3",
         mode="release",
     )
-    assert _release_dep_spec(entry) == (
+    assert _dep_spec(entry) == (
         "arches-foo @ git+https://github.com/x/arches-foo.git@v1.2.3"
     )
+
+
+def test_dep_spec_develop_renders_as_git_url():
+    """Develop apps go in pyproject so colleagues without a local clone still
+    install — from the team branch tip via git+url@ref."""
+    entry = AppEntry(
+        package="arches-foo", source="git",
+        repo="https://github.com/x/arches-foo.git",
+        ref="feature/wip", mode="develop",
+    )
+    assert _dep_spec(entry) == (
+        "arches-foo @ git+https://github.com/x/arches-foo.git@feature/wip"
+    )
+
+
+def test_dep_spec_develop_defaults_ref_to_main():
+    entry = AppEntry(
+        package="arches-foo", source="git",
+        repo="https://github.com/x/arches-foo.git",
+        mode="develop",
+    )
+    assert _dep_spec(entry) == "arches-foo @ git+https://github.com/x/arches-foo.git@main"
+
+
+def test_dep_spec_develop_pypi_source_still_renders_as_git():
+    """source=pypi + develop is valid — repo was supplied at add-app time
+    for cloning. Pyproject still installs from git (release-of-WIP-branch),
+    not pypi, since the WIP isn't published."""
+    entry = AppEntry(
+        package="arches-foo", source="pypi", version="~=2.0",
+        repo="https://github.com/x/arches-foo.git",
+        mode="develop",
+    )
+    assert _dep_spec(entry) == "arches-foo @ git+https://github.com/x/arches-foo.git@main"
 
 
 # --------------------------------------------------------------------------- #
@@ -320,29 +354,43 @@ def test_sync_pyproject_adds_release_app(tmp_path: Path) -> None:
     assert "arches-her~=2.0" in text
 
 
-def test_sync_pyproject_skips_develop_apps(tmp_path: Path) -> None:
-    """Develop apps install editable from /workspace at install-time,
-    not from pyproject. Putting them in [project.dependencies] would make
-    `uv lock` try to fetch a release that may not exist."""
+def test_sync_pyproject_includes_develop_apps_as_git(tmp_path: Path) -> None:
+    """Develop apps go in pyproject as `pkg @ git+repo@ref` so any dev can
+    install (with or without a local clone) — install command then overrides
+    with editable from /workspace where a clone exists."""
     _write_pyproject(tmp_path)
-    # Caller passes only release apps; the sync_apps() entry-point filters.
-    _sync_pyproject([], tmp_path)
+    _sync_pyproject(
+        [AppEntry(
+            package="arches-her", source="git",
+            repo="https://github.com/x/arches-her.git",
+            ref="feature/wip", mode="develop",
+        )],
+        tmp_path,
+    )
     text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
-    assert "arches-her" not in text
+    assert "arches-her @ git+https://github.com/x/arches-her.git@feature/wip" in text
 
 
-def test_sync_pyproject_drops_app_when_moved_to_develop(tmp_path: Path) -> None:
-    """Toggling an app release→develop must remove it from pyproject deps —
-    otherwise uv lock would still try to fetch it."""
+def test_sync_pyproject_rewrites_spec_when_moved_to_develop(tmp_path: Path) -> None:
+    """Toggling release→develop rewrites the entry's spec from pinned
+    version to git+url@ref — the entry stays in pyproject, just at a
+    different source."""
     _write_pyproject(tmp_path)
     _sync_pyproject(
         [AppEntry(package="arches-her", source="pypi", version="~=2.0", mode="release")],
         tmp_path,
     )
-    # Now switch to develop: caller passes empty release list.
-    _sync_pyproject([], tmp_path)
+    _sync_pyproject(
+        [AppEntry(
+            package="arches-her", source="git",
+            repo="https://github.com/x/arches-her.git",
+            ref="feature/wip", mode="develop",
+        )],
+        tmp_path,
+    )
     text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
-    assert "arches-her" not in text
+    assert "arches-her~=2.0" not in text
+    assert "arches-her @ git+https://github.com/x/arches-her.git@feature/wip" in text
 
 
 def test_sync_pyproject_renders_git_release_dep(tmp_path: Path) -> None:
