@@ -17,7 +17,7 @@ import typer
 
 PACKAGE_DATA = "arches_toolkit._data"
 BASELINE = ("compose.yaml", "compose.dev.yaml")
-PROJECT_OVERLAYS = ("compose.apps.yaml", "compose.extras.yaml")
+PROJECT_OVERLAYS = ("compose.extras.yaml",)
 ARCHES_SRC_OVERLAY = "compose.arches-src.yaml"
 
 

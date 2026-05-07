@@ -1,8 +1,8 @@
-"""``arches-toolkit add-app`` — add an entry to ``apps.yaml``.
+"""``arches-toolkit add-app`` — register an app in ``apps.yaml`` and install it.
 
-No network calls. Idempotent: running with the same arguments twice is a
-no-op the second time. Re-running with different fields updates the existing
-entry rather than appending a duplicate.
+End-to-end: upserts ``apps.yaml`` → (develop) clones the sibling working tree
+→ runs ``sync-apps`` → runs ``install`` so the new app is live in the venv
+volume. Idempotent — re-running with the same args is a no-op.
 """
 
 from __future__ import annotations
@@ -13,7 +13,10 @@ from pathlib import Path
 import typer
 
 from .. import apps_manifest as manifest_mod
+from .._clone import ensure_clone
 from ..apps_manifest import AppEntry
+from . import install as install_cmd
+from . import sync_apps as sync_apps_cmd
 
 
 class Source(str, Enum):
@@ -47,11 +50,27 @@ def add_app(
         help="Path to apps.yaml (default: ./apps.yaml)",
         show_default=False,
     ),
+    no_sync: bool = typer.Option(
+        False, "--no-sync",
+        help="Skip running `sync-apps` after upsert (also implies --no-install)",
+    ),
+    no_install: bool = typer.Option(
+        False, "--no-install",
+        help="Skip running `install` (e.g. when bootstrapping before `dev`)",
+    ),
 ) -> None:
     if source == Source.git and not repo:
         raise typer.BadParameter("--repo is required when --source=git")
-    if source == Source.pypi and repo:
-        raise typer.BadParameter("--repo is only valid when --source=git")
+    if source == Source.pypi and repo and mode != Mode.develop:
+        raise typer.BadParameter(
+            "--repo with --source=pypi is only valid in develop mode "
+            "(where it tells the toolkit where to clone the working tree)"
+        )
+    if mode == Mode.develop and not repo and source == Source.pypi:
+        raise typer.BadParameter(
+            "--repo URL is required when adding a develop-mode app from pypi "
+            "— we need somewhere to clone from"
+        )
 
     entry = AppEntry(
         package=package,
@@ -73,16 +92,28 @@ def add_app(
     else:
         typer.echo(f"{package} already present in {manifest_path}; no changes")
 
-    if action != "unchanged":
-        typer.echo("")
-        typer.echo("Next steps:")
-        if mode == Mode.release:
-            typer.echo("  1. arches-toolkit sync-apps")
-            typer.echo("  2. uv sync   # or: docker compose exec web uv sync")
+    if mode == Mode.develop:
+        path, clone_action = ensure_clone(entry, manifest_path.parent)
+        if clone_action == "cloned":
+            typer.echo(f"Cloned {entry.repo} → {path}")
         else:
-            typer.echo("  1. arches-toolkit sync-apps")
-            typer.echo("  2. arches-toolkit dev   # picks up compose.apps.yaml")
-        django_app = package.replace("-", "_")
-        typer.echo("")
-        typer.echo("If your settings.py does not already inherit this app, add to INSTALLED_APPS:")
-        typer.echo(f'    "{django_app}",')
+            typer.echo(f"Clone already exists at {path} — leaving untouched")
+
+    project_root = manifest_path.parent
+
+    if no_sync:
+        return
+
+    typer.echo("")
+    sync_apps_cmd.sync_apps(
+        manifest_path=manifest_path,
+        project_root=project_root,
+        no_lock=False,
+        no_installed_apps=False,
+    )
+
+    if no_install:
+        return
+
+    typer.echo("")
+    install_cmd.install(project_root=project_root, no_restart=False)

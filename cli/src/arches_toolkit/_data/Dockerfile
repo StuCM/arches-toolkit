@@ -43,14 +43,14 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
     if [ -f uv.lock ]; then \
         uv sync --frozen --no-install-project --python /venv/bin/python \
-            --no-install-package arches --inexact; \
+            --no-install-package arches --inexact --prerelease=allow; \
     fi
 
 COPY --chown=app:app . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     set -eux; \
-    uv pip install --python /venv/bin/python -e . ; \
+    uv pip install --python /venv/bin/python --prerelease=allow -e . ; \
     chown -R app:app /venv
 
 # Warn (don't fail) if the project's locked arches version diverges from the
@@ -88,10 +88,6 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
-
-# /opt/apps is where sync-apps develop-mode bind mounts land.
-# /app ownership was already set by COPY --chown in `build`; no recursive chown.
-RUN install -d -o app -g app -m 0775 /opt/apps
 
 USER app:app
 WORKDIR /app

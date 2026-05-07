@@ -15,6 +15,8 @@ from .commands import init as init_cmd
 from .commands import migrate as migrate_cmd
 from .commands import patch as patch_cmd
 from .commands import setup_db as setup_db_cmd
+from .commands import install as install_cmd
+from .commands import switch_mode as switch_mode_cmd
 from .commands import sync_apps as sync_apps_cmd
 
 app = typer.Typer(
@@ -65,6 +67,14 @@ app.command("add-app", help="Add an Arches application to apps.yaml")(add_app_cm
 app.command("sync-apps", help="Apply apps.yaml changes to pyproject.toml + compose.apps.yaml")(
     sync_apps_cmd.sync_apps
 )
+app.command(
+    "switch-mode",
+    help="Switch an app between release and develop mode (clones / safety-checks)",
+)(switch_mode_cmd.switch_mode)
+app.command(
+    "install",
+    help="Install the project and all apps from apps.yaml into the venv volume",
+)(install_cmd.install)
 app.command(
     "dev",
     help="Run docker compose up --watch with auto-discovered overlays",

@@ -1,6 +1,5 @@
-"""Tests for ``arches-toolkit sync-apps`` — specifically the bits where
-apps.yaml schema choices affect the generated compose.apps.yaml and the
-pyproject.toml dep list.
+"""Tests for ``arches-toolkit sync-apps`` — apps.yaml schema choices affecting
+the pyproject.toml dep list and the managed INSTALLED_APPS block.
 """
 
 from __future__ import annotations
@@ -8,20 +7,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from arches_toolkit.apps_manifest import AppEntry
+from arches_toolkit._clone import develop_repo_dirname
 from arches_toolkit.commands.sync_apps import (
     INSTALLED_APPS_MARKER_END,
     INSTALLED_APPS_MARKER_START,
-    _build_compose_apps,
-    _develop_repo_dirname,
+    LEGACY_COMPOSE_APPS_FILENAME,
     _find_settings_path,
     _python_module_name,
     _release_dep_spec,
+    _remove_legacy_compose_apps,
     _sync_installed_apps,
+    _sync_pyproject,
 )
 
 
 # --------------------------------------------------------------------------- #
-# _develop_repo_dirname precedence
+# develop_repo_dirname precedence
 # --------------------------------------------------------------------------- #
 
 
@@ -40,7 +41,7 @@ def test_develop_dirname_path_wins_over_repo_and_package():
         mode="develop",
         path="2.0.x",
     )
-    assert _develop_repo_dirname(entry) == "2.0.x"
+    assert develop_repo_dirname(entry) == "2.0.x"
 
 
 def test_develop_dirname_repo_used_when_no_path():
@@ -50,7 +51,7 @@ def test_develop_dirname_repo_used_when_no_path():
         repo="https://github.com/archesproject/arches-her.git",
         mode="develop",
     )
-    assert _develop_repo_dirname(entry) == "arches-her"
+    assert develop_repo_dirname(entry) == "arches-her"
 
 
 def test_develop_dirname_repo_strips_trailing_git():
@@ -60,12 +61,12 @@ def test_develop_dirname_repo_strips_trailing_git():
         repo="https://github.com/x/arches-her.git/",
         mode="develop",
     )
-    assert _develop_repo_dirname(entry) == "arches-her"
+    assert develop_repo_dirname(entry) == "arches-her"
 
 
 def test_develop_dirname_falls_back_to_package():
     entry = AppEntry(package="arches-her", source="pypi", mode="develop")
-    assert _develop_repo_dirname(entry) == "arches-her"
+    assert develop_repo_dirname(entry) == "arches-her"
 
 
 # --------------------------------------------------------------------------- #
@@ -86,60 +87,7 @@ def test_python_module_name_already_underscore_unchanged():
 
 
 # --------------------------------------------------------------------------- #
-# _build_compose_apps — overlay mounts at site-packages
-# --------------------------------------------------------------------------- #
-
-
-def test_build_compose_apps_uses_overlay_mount_with_path_override():
-    """develop-mode entry with path override → bind mount at
-    /venv/.../site-packages/<python_name> from ../<path>/<python_name>.
-    Applies to all services that import app code plus webpack.
-    """
-    entry = AppEntry(
-        package="arches-her",
-        source="git",
-        repo="https://github.com/archesproject/arches-her.git",
-        ref="dev/2.0.x",
-        mode="develop",
-        path="2.0.x",
-    )
-    doc = _build_compose_apps([entry])
-    mount = "../2.0.x/arches_her:/venv/lib/python3.12/site-packages/arches_her"
-    assert doc == {
-        "services": {
-            "init": {"volumes": [mount]},
-            "web": {"volumes": [mount]},
-            "worker": {"volumes": [mount]},
-            "api": {"volumes": [mount]},
-            "webpack": {"volumes": [mount]},
-        }
-    }
-
-
-def test_build_compose_apps_uses_package_name_when_no_path():
-    """Without an explicit path, both sides of the mount derive from the
-    package name (converted from dist → module naming)."""
-    entry = AppEntry(package="arches-foo", source="pypi", mode="develop")
-    doc = _build_compose_apps([entry])
-    mount = "../arches-foo/arches_foo:/venv/lib/python3.12/site-packages/arches_foo"
-    assert doc["services"]["web"]["volumes"] == [mount]
-
-
-def test_build_compose_apps_includes_webpack():
-    """Regression guard: webpack MUST get the overlay mount. arches's webpack
-    config reads apps' JS from the same site-packages path; without webpack
-    in the mount list, the bundler reads the unmodified install and the UI
-    won't reflect your clone's edits."""
-    entry = AppEntry(package="arches-foo", source="pypi", mode="develop")
-    doc = _build_compose_apps([entry])
-    assert "webpack" in doc["services"], (
-        "webpack missing from compose.apps.yaml — Python services would see "
-        "your edits but the bundled JS wouldn't"
-    )
-
-
-# --------------------------------------------------------------------------- #
-# _release_dep_spec — unrelated but useful regression surface
+# _release_dep_spec
 # --------------------------------------------------------------------------- #
 
 
@@ -341,6 +289,92 @@ def test_sync_installed_apps_no_installed_apps_assignment(tmp_path: Path):
     # settings.py unchanged
     text = (proj / "testpkg" / "settings.py").read_text(encoding="utf-8")
     assert INSTALLED_APPS_MARKER_START not in text
+
+
+# --------------------------------------------------------------------------- #
+# _sync_pyproject — release apps only; develop apps stay out
+# --------------------------------------------------------------------------- #
+
+
+def _write_pyproject(tmp_path: Path, deps: list[str] | None = None) -> Path:
+    p = tmp_path / "pyproject.toml"
+    body = '[project]\nname = "x"\nversion = "0"\n'
+    if deps is None:
+        body += "dependencies = []\n"
+    else:
+        body += "dependencies = [\n"
+        for d in deps:
+            body += f'    "{d}",\n'
+        body += "]\n"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_sync_pyproject_adds_release_app(tmp_path: Path) -> None:
+    _write_pyproject(tmp_path)
+    _sync_pyproject(
+        [AppEntry(package="arches-her", source="pypi", version="~=2.0", mode="release")],
+        tmp_path,
+    )
+    text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert "arches-her~=2.0" in text
+
+
+def test_sync_pyproject_skips_develop_apps(tmp_path: Path) -> None:
+    """Develop apps install editable from /workspace at install-time,
+    not from pyproject. Putting them in [project.dependencies] would make
+    `uv lock` try to fetch a release that may not exist."""
+    _write_pyproject(tmp_path)
+    # Caller passes only release apps; the sync_apps() entry-point filters.
+    _sync_pyproject([], tmp_path)
+    text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert "arches-her" not in text
+
+
+def test_sync_pyproject_drops_app_when_moved_to_develop(tmp_path: Path) -> None:
+    """Toggling an app release→develop must remove it from pyproject deps —
+    otherwise uv lock would still try to fetch it."""
+    _write_pyproject(tmp_path)
+    _sync_pyproject(
+        [AppEntry(package="arches-her", source="pypi", version="~=2.0", mode="release")],
+        tmp_path,
+    )
+    # Now switch to develop: caller passes empty release list.
+    _sync_pyproject([], tmp_path)
+    text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert "arches-her" not in text
+
+
+def test_sync_pyproject_renders_git_release_dep(tmp_path: Path) -> None:
+    """Git-source release apps render as `pkg @ git+url@ref` — orthogonal to
+    release/develop."""
+    _write_pyproject(tmp_path)
+    _sync_pyproject(
+        [AppEntry(
+            package="arches-her", source="git",
+            repo="https://github.com/x/arches-her.git", ref="v2.0", mode="release",
+        )],
+        tmp_path,
+    )
+    text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert "arches-her @ git+https://github.com/x/arches-her.git@v2.0" in text
+
+
+# --------------------------------------------------------------------------- #
+# Legacy compose.apps.yaml cleanup
+# --------------------------------------------------------------------------- #
+
+
+def test_remove_legacy_compose_apps_when_absent(tmp_path: Path) -> None:
+    assert _remove_legacy_compose_apps(tmp_path) is None
+
+
+def test_remove_legacy_compose_apps_when_present(tmp_path: Path) -> None:
+    legacy = tmp_path / LEGACY_COMPOSE_APPS_FILENAME
+    legacy.write_text("services: {}\n", encoding="utf-8")
+    status = _remove_legacy_compose_apps(tmp_path)
+    assert status is not None and "removed" in status
+    assert not legacy.exists()
 
 
 def test_sync_installed_apps_handles_missing_settings_gracefully(tmp_path: Path):
