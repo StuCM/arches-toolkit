@@ -444,6 +444,60 @@ user has to fix the source before `sync-apps` will succeed.
 
 ---
 
+## Ideas from HE/arches-containers comparison (backlog)
+
+Surfaced from a comparison of `HistoricEngland/arches-containers` (the `act`
+CLI) against this toolkit on 2026-05-28. None are blocking; capture for
+later prioritisation.
+
+- **Explicit multi-project registry.** Today the CLI infers the project
+  from CWD and lets compose-project-name collisions happen silently. HE
+  hash-suffixes container/network names and ships `activate` / `list` /
+  `status` / `switch`. A lightweight `~/.config/arches-toolkit/projects.json`
+  registry plus `arches-toolkit ls` / `activate` would help devs juggling
+  multiple Arches instances (e.g. Catalina + Quartz + vanilla 8.1) on one
+  machine without docker-name clashes. The `list_apps` work in flight is
+  a partial precedent.
+- **`generate-debug-config` for VS Code.** Cheap to produce; removes a
+  documentation step; immediately useful with the debugpy port already
+  exposed in `compose.dev.yaml`. Output a `.vscode/launch.json` stub.
+- **`view` (open browser).** Trivial QoL — open `http://localhost:8000`
+  for the active project.
+- **`import` / `export` of a project skeleton.** Less compelling for us
+  because the project tree is already minimal, but the *idea* of
+  round-tripping a project between machines (incl. CI) without losing
+  resource-naming identity is worth thinking about for CI parity. Park
+  unless a concrete need surfaces.
+- **Standalone app harness (`init-app-harness <path>`).** Borrow HE's
+  "app-as-project" idea as an *additive* mode on top of `apps.yaml`, not
+  a replacement. Scaffolds a minimal sibling project that mounts a single
+  app in `develop` mode against stock Arches — nothing else. Use cases:
+  (1) contribute to `arches-orm` without cloning Catalina + its `.env` +
+  its DB seed; (2) pre-release smoke test that `arches-her` v2.1 still
+  works on a clean Arches; (3) triage "is this bug Catalina-specific or
+  in the app itself?"; (4) actually exercise the example resource models
+  apps ship with. Reuses the existing Dockerfile / compose / CLI — the
+  harness is just a tiny one-app `apps.yaml` and an empty Django project.
+  Stretch goal: a reusable workflow that runs each F&T-maintained app's
+  harness in CI against the latest base image so stock-Arches regressions
+  fail loudly at the app level, not when someone tries to consume it.
+- **Per-version overlay strategy — design before drift accumulates.** Our
+  single-Dockerfile, single-compose model is cleaner than HE's per-version
+  template trees (`_6.1_`, `_6.2_`, `_7.0_` … `_7.6_`), but we need a
+  deliberate plan for how version-conditional behaviour will be expressed
+  *before* `if version >= 8` branches start scattering through compose /
+  Dockerfile / entrypoint. Options: version-scoped compose overlays
+  (`compose.arches-7.6.yaml`), build-arg-driven conditionals, or per-version
+  patch overlays in the base image. Decide while there's still only one
+  supported line.
+
+Things HE does *not* do that we already cover and shouldn't regress on:
+no-Dockerfile-in-project-tree, `apps.yaml` + develop mode, `uv sync`
+instead of rebuild, patch series with metadata, prod target + Helm chart
+in the same repo, scaffolding for widgets/plugins/cards/components.
+
+---
+
 ## Phase 2 (deferred — not started in Phase 1)
 
 - Helm chart improvements at `clusters/helm-arches`: volume provisioning for writable paths, security context defaults, `extraServices` map, chart bump to 0.0.19
