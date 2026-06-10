@@ -1,5 +1,7 @@
-"""Tests for ``arches-toolkit create app`` — specifically how it auto-registers
-the new app into apps.yaml.
+"""Tests for ``arches-toolkit create app`` — scaffold location, git init, and
+the deliberate absence of apps.yaml auto-registration (apps register via
+``add-app --repo`` once pushed; everything in apps.yaml must be installable
+by any teammate).
 """
 
 from __future__ import annotations
@@ -20,24 +22,23 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def project_dir(tmp_path: Path) -> Path:
-    """A project-root-like dir with an (empty) apps.yaml.
+    """A project-root-like dir (workspace/project) with an (empty) apps.yaml.
 
-    create app registers when cwd has apps.yaml. Use --project-root to point
-    sync-apps etc. at this dir; create app itself reads `Path.cwd()` so its
-    tests need to run *inside* this dir.
+    create app reads `Path.cwd()` so its tests need to run *inside* this dir.
     """
-    (tmp_path / "apps.yaml").write_text("apps: []\n", encoding="utf-8")
-    return tmp_path
+    project = tmp_path / "workspace" / "project"
+    project.mkdir(parents=True)
+    (project / "apps.yaml").write_text("apps: []\n", encoding="utf-8")
+    return project
 
 
-def test_create_app_auto_registers_as_pypi_placeholder(
+def test_create_app_does_not_register(
     runner: CliRunner, project_dir: Path, monkeypatch, tmp_path: Path
 ):
-    """Newly scaffolded apps auto-register in apps.yaml with source: pypi as
-    a placeholder, mode: develop. The user must then either push the clone
-    to git and flip source → git, OR hand-edit pyproject with a file://
-    URL, before running sync-apps. See TASKS.md "Open design problem:
-    scaffolded local-only apps" for why we can't do better yet."""
+    """Scaffolds are NOT auto-registered: apps.yaml entries must be installable
+    by any teammate (uv lock resolves develop entries as git+repo@ref), and a
+    fresh scaffold has no pushed repo yet. The output points at the push +
+    add-app flow instead."""
     monkeypatch.chdir(project_dir)
     scaffold_parent = tmp_path / "scaffolds"
     scaffold_parent.mkdir()
@@ -55,14 +56,66 @@ def test_create_app_auto_registers_as_pypi_placeholder(
     apps_yaml = yaml.safe_load(
         (project_dir / "apps.yaml").read_text(encoding="utf-8")
     )
-    entries = apps_yaml["apps"]
-    assert len(entries) == 1
-    entry = entries[0]
-    assert entry["package"] == "arches-my-new-thing"
-    assert entry["source"] == "pypi"
-    assert entry["mode"] == "develop"
-    # Output should nudge the user to flip to a real source
-    assert "push the scaffold to git" in result.output or "push to git" in result.output
+    assert apps_yaml["apps"] == []
+    assert "add-app arches-my-new-thing" in result.output
+    assert "--repo" in result.output
+
+
+def test_create_app_defaults_to_sibling_of_project(
+    runner: CliRunner, project_dir: Path, monkeypatch
+):
+    """Run from a project root (cwd has apps.yaml) with no --path, the app
+    scaffolds as a *sibling* of the project — the location the /workspace
+    mount and add-app's clone convention expect."""
+    monkeypatch.chdir(project_dir)
+
+    result = runner.invoke(
+        main_module.app,
+        ["create", "app", "my_new_thing", "--arches-version", "8.1"],
+    )
+    assert result.exit_code == 0, result.output
+
+    sibling = project_dir.parent / "arches-my-new-thing"
+    assert sibling.is_dir()
+    assert not (project_dir / "arches-my-new-thing").exists()
+
+
+def test_create_app_defaults_to_cwd_outside_project(
+    runner: CliRunner, monkeypatch, tmp_path: Path
+):
+    """Without apps.yaml in cwd there is no project to be a sibling of —
+    scaffold into cwd as before."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+
+    result = runner.invoke(
+        main_module.app,
+        ["create", "app", "my_new_thing", "--arches-version", "8.1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert (plain / "arches-my-new-thing").is_dir()
+
+
+def test_create_app_git_inits_scaffold(
+    runner: CliRunner, project_dir: Path, monkeypatch, tmp_path: Path
+):
+    """The scaffold becomes its own git repo so the user is one
+    `remote add` + `push` away from a registrable app."""
+    monkeypatch.chdir(project_dir)
+    scaffold_parent = tmp_path / "scaffolds"
+    scaffold_parent.mkdir()
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "create", "app", "my_new_thing",
+            "--path", str(scaffold_parent),
+            "--arches-version", "8.1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (scaffold_parent / "arches-my-new-thing" / ".git").is_dir()
 
 
 def test_create_app_accepts_kebab_case_name(

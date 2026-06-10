@@ -8,6 +8,8 @@ command echoes the exact invocation, matching ``init``'s pattern.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +18,6 @@ import typer
 from .. import apps_manifest as manifest_mod
 from .. import scaffold
 from .._util import validate_name
-from ..apps_manifest import AppEntry
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -327,21 +328,47 @@ def component(
     _echo_next(target, None, None)
 
 
+def _git_init(app_root: Path) -> None:
+    """Initialise the scaffold as its own git repo with a first commit, so
+    the user is one ``remote add`` + ``push`` away from a registrable app.
+    Failures are notes, not errors — the scaffold itself is already written.
+    """
+    if (app_root / ".git").exists():
+        return
+    if shutil.which("git") is None:
+        typer.echo(
+            "note: git not found — skipped `git init`; the app needs its own "
+            "repo before it can be registered with add-app"
+        )
+        return
+    for cmd in (
+        ["git", "init", "--initial-branch", "main"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-m", "Scaffold via arches-toolkit create app"],
+    ):
+        result = subprocess.run(cmd, cwd=app_root, capture_output=True, text=True)
+        if result.returncode != 0:
+            typer.echo(
+                f"note: `{' '.join(cmd)}` failed in {app_root} — finish the git "
+                f"setup yourself:\n{result.stderr.rstrip()}"
+            )
+            return
+    typer.echo(f"git: initialised {app_root} with an initial commit (branch main)")
+
+
 @app.command("app", help="Scaffold a new arches-<name> pip-installable application")
 def app_cmd(
     name: str = typer.Argument(
         ..., help="App name — the 'foo' in arches-foo (snake_case or kebab-case)"
     ),
     path: Optional[Path] = typer.Option(
-        None, "--path", help="Parent dir to create arches-<name>/ under (default: cwd)"
+        None, "--path",
+        help="Parent dir to create arches-<name>/ under (default: the project "
+             "root's parent when run from a project, since develop apps live "
+             "as siblings under the /workspace mount; else cwd)",
     ),
     arches_version: Optional[str] = typer.Option(
         None, "--arches-version", help="Arches major.minor for template selection"
-    ),
-    register: bool = typer.Option(
-        True,
-        "--register/--no-register",
-        help="Auto-register the new app in cwd's apps.yaml (if present) as mode: develop",
     ),
     force: bool = _opt_force(),
 ) -> None:
@@ -350,7 +377,14 @@ def app_cmd(
     # everything downstream (token derivation, package name) sees one form.
     name = name.replace("-", "_")
     validate_name(name, what="app name")
-    parent = (path or Path.cwd()).resolve()
+    if path is not None:
+        parent = path.resolve()
+    elif (Path.cwd() / manifest_mod.DEFAULT_MANIFEST_NAME).exists():
+        # cwd is a project root — scaffold as a sibling, where the /workspace
+        # mount (and add-app's clone convention) expects develop apps to live.
+        parent = Path.cwd().resolve().parent
+    else:
+        parent = Path.cwd().resolve()
     parent.mkdir(parents=True, exist_ok=True)
     app_root = parent / f"arches-{name.replace('_', '-')}"
 
@@ -381,74 +415,22 @@ def app_cmd(
         raise typer.BadParameter(str(exc)) from None
     _echo_written(written)
 
-    try:
-        rel_root = app_root.relative_to(Path.cwd())
-    except ValueError:
-        rel_root = app_root
+    _git_init(app_root)
 
     pkg_name = f"arches-{name.replace('_', '-')}"
-    manifest_path = Path.cwd() / "apps.yaml"
-    registered = False
 
-    # `create app` scaffolds files but can't fully wire the app into the
-    # project automatically — Arches's system check (check_arches_compatibility)
-    # needs a real installable source (pypi/git) to discover package metadata,
-    # which a brand-new local scaffold doesn't have. Auto-register with
-    # source: pypi as a placeholder; the user must either push to git and
-    # flip source → git, or hand-edit pyproject.toml with a file:// URL
-    # before sync-apps. See TASKS.md "Open design problem: scaffolded
-    # local-only apps" for the deeper issue we want to solve eventually.
-    if register and manifest_path.exists():
-        manifest = manifest_mod.load(manifest_path)
-        entry = AppEntry(
-            package=pkg_name,
-            source="pypi",
-            mode="develop",
-        )
-        action, _ = manifest.upsert(entry)
-        manifest_mod.save(manifest, manifest_path)
-        typer.echo("")
-        typer.echo(f"apps.yaml: {action} {pkg_name} (source: pypi — placeholder)")
-        registered = True
-
+    # Deliberately NOT auto-registered in apps.yaml: everything registered
+    # there must be installable by any teammate (`uv lock` resolves develop
+    # entries as git+repo@ref, so the repo must exist AND the ref be pushed).
+    # A scaffold has neither yet — registration happens via add-app once it
+    # does. See TASKS.md "Design decision: scaffolded apps need a pushed repo".
     typer.echo("")
     typer.echo("Next:")
-    if registered:
-        typer.echo(
-            "  # The apps.yaml entry uses source: pypi as a placeholder. Your"
-        )
-        typer.echo(
-            "  # new app isn't on PyPI yet, so sync-apps will fail to resolve it"
-        )
-        typer.echo(
-            "  # unless you first:"
-        )
-        typer.echo(
-            "  #   (a) push the scaffold to git, then change apps.yaml:"
-        )
-        typer.echo(
-            "  #       source: git, repo: <url>, ref: <branch>, path: <dirname>"
-        )
-        typer.echo(
-            "  #   (b) OR hand-edit pyproject.toml to add:"
-        )
-        typer.echo(
-            f'  #       "{pkg_name} @ file://{app_root}"'
-        )
-        typer.echo("")
-        typer.echo("  arches-toolkit sync-apps          # after fixing source above")
-        typer.echo(
-            "  arches-toolkit dev --build        # rebuild so the new app is picked up"
-        )
-    else:
-        typer.echo(f"  pip install -e {rel_root}")
-        if manifest_path.exists():
-            typer.echo(
-                f"  arches-toolkit add-app {pkg_name} --mode develop   "
-                "# --no-register was set; register manually"
-            )
-        else:
-            typer.echo(
-                f"  # no apps.yaml in {Path.cwd()} — if this app is for a toolkit "
-                "project, cd there first and run `arches-toolkit add-app`."
-            )
+    typer.echo("  # Apps register from a pushed repo — everything in apps.yaml must be")
+    typer.echo("  # installable by any teammate. Create a remote and push first:")
+    typer.echo(f"  #   git -C {app_root} remote add origin <url>")
+    typer.echo(f"  #   git -C {app_root} push -u origin main")
+    typer.echo("  # then wire it into the project (clones/syncs/installs in one go):")
+    typer.echo(
+        f"  arches-toolkit add-app {pkg_name} --source git --repo <url> --mode develop"
+    )
