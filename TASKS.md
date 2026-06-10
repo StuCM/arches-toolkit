@@ -195,13 +195,13 @@ Classify into one of four buckets:
 ### 5.3 — `arches-toolkit sync-apps`
 - [x] Reads `apps.yaml`
 - [x] For release entries: appends to `pyproject.toml` `[project.dependencies]`
-- [x] For develop entries: writes `compose.apps.yaml` with bind mounts + editable installs
+- [~] For develop entries: writes `compose.apps.yaml` with bind mounts + editable installs — superseded: develop entries now render as `pkg @ git+repo@ref` deps; `install` overlays an editable install when a local `/workspace` clone exists; `sync-apps` removes any legacy `compose.apps.yaml`
 - [x] Idempotent
 
 **Acceptance**: after `add-app` + `sync-apps` + `uv sync`, the app is importable in the web container.
 
 ### 5.4 — `arches-toolkit dev`
-- [x] Wrapper that runs `docker compose -f compose.yaml -f compose.dev.yaml [-f compose.apps.yaml] [-f compose.extras.yaml] up --watch`
+- [x] Wrapper that runs `docker compose -f compose.yaml -f compose.dev.yaml [-f compose.extras.yaml] up --watch`
 - [x] Only includes files that exist
 - [x] Passes through unknown flags to `docker compose`
 
@@ -393,6 +393,9 @@ bind-mount axis.
 ## Open design problem: scaffolded local-only apps
 
 **Status:** unresolved. Needs a design session before picking an approach.
+Now a hard error rather than a silent breakage: `sync-apps` rejects a
+develop entry with no `repo` (would otherwise emit `git+None@main`), so a
+freshly scaffolded app cannot enter develop mode until it has a remote.
 
 **Context.** `arches-toolkit create app my_thing` scaffolds a new Arches
 application on disk. Before the user pushes it to git or publishes to PyPI,
@@ -456,8 +459,8 @@ later prioritisation.
   `status` / `switch`. A lightweight `~/.config/arches-toolkit/projects.json`
   registry plus `arches-toolkit ls` / `activate` would help devs juggling
   multiple Arches instances (e.g. Catalina + Quartz + vanilla 8.1) on one
-  machine without docker-name clashes. The `list_apps` work in flight is
-  a partial precedent.
+  machine without docker-name clashes. The `arches-toolkit list` command
+  (landed) is a partial precedent.
 - **`generate-debug-config` for VS Code.** Cheap to produce; removes a
   documentation step; immediately useful with the debugpy port already
   exposed in `compose.dev.yaml`. Output a `.vscode/launch.json` stub.
