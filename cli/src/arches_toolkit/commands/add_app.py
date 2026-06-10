@@ -39,7 +39,10 @@ def add_app(
         None, "--repo", help="Git repository URL (required when --source git)"
     ),
     ref: str | None = typer.Option(
-        None, "--ref", help="Git ref (branch/tag/sha) when --source git"
+        None, "--ref",
+        help="Git ref (branch/tag/sha) — the install spec for git/develop apps; "
+             "for develop apps this is what clone-less colleagues resolve, not "
+             "your local clone's branch",
     ),
     mode: Mode = typer.Option(
         Mode.release, "--mode", help="release: pinned dep; develop: bind-mounted editable install"

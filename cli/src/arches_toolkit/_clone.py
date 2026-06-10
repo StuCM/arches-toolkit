@@ -1,9 +1,10 @@
 """Clone management for develop-mode apps.
 
-Develop-mode apps live as a sibling clone of the project root and are
-bind-mounted over the installed site-packages copy by ``compose.apps.yaml``
-(see :mod:`arches_toolkit.commands.sync_apps`). This module owns the path
-convention and the safety checks for that clone — shared between
+Develop-mode apps live as a sibling clone of the project root, exposed to the
+dev container via the permanent ``..:/workspace:ro`` mount in compose.dev.yaml;
+``arches-toolkit install`` then force-reinstalls each editable from
+``/workspace/<dir>``. This module owns the path convention and the safety
+checks for that clone — shared between
 ``add-app`` (clone on first develop entry) and ``switch-mode`` (clone on
 release→develop, gate on develop→release).
 """
@@ -55,10 +56,10 @@ def ensure_clone(entry: AppEntry, project_root: Path) -> tuple[Path, str]:
     path = clone_path(entry, project_root)
     if path.exists():
         return path, "exists"
-    cmd = ["git", "clone"]
-    if entry.ref:
-        cmd += ["--branch", entry.ref]
-    cmd += [entry.repo, str(path)]
+    # `ref` is the install spec for clone-less colleagues only — it never
+    # dictates the local clone's branch. The clone lands on the repo's
+    # default branch; check out whatever you want to work on yourself.
+    cmd = ["git", "clone", entry.repo, str(path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise typer.BadParameter(

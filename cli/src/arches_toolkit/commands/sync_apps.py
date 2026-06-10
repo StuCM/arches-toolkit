@@ -58,6 +58,13 @@ def _dep_spec(entry: AppEntry) -> str:
     tip from the same pyproject entry.
     """
     if entry.mode == "develop":
+        if not entry.repo:
+            raise typer.BadParameter(
+                f"{entry.package}: develop-mode entries need a `repo` in apps.yaml "
+                "— it's the git source colleagues without a local clone install "
+                "from. Add `repo:` to the entry, or use `arches-toolkit switch-mode "
+                f"{entry.package} develop --repo <url>`."
+            )
         ref = entry.ref or DEFAULT_DEVELOP_REF
         return f"{entry.package} @ git+{entry.repo}@{ref}"
     if entry.source == "git":
