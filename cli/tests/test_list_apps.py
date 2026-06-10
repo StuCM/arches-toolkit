@@ -97,6 +97,20 @@ def test_source_for_display_pypi_alone() -> None:
     assert _source_for_display(entry) == "pypi"
 
 
+def test_source_for_display_develop_annotates_release_origin() -> None:
+    # A pypi-source app in develop mode installs git+clone, not pypi — the
+    # source is only the release origin, so the column must say so rather than
+    # bare "pypi" next to an editable install.
+    entry = AppEntry(
+        package="arches-foo", source="pypi",
+        repo="https://github.com/x/arches-foo.git", mode="develop",
+    )
+    out = _source_for_display(entry)
+    assert "release origin" in out
+    assert "pypi" in out
+    assert "arches-foo.git" in out
+
+
 # --------------------------------------------------------------------------- #
 # End-to-end: list_apps prints sensible content
 # --------------------------------------------------------------------------- #

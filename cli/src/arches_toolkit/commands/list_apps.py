@@ -40,6 +40,13 @@ def _ref_for_display(entry: AppEntry) -> str:
 
 
 def _source_for_display(entry: AppEntry) -> str:
+    if entry.mode == "develop":
+        # In develop mode the install is always git+clone regardless of
+        # `source` — `source` is only the *release*-mode origin. Annotate it
+        # so a `pypi` source next to an editable install doesn't read as a
+        # contradiction.
+        origin = f"[dim]{entry.source} (release origin)[/]"
+        return f"{origin} · {entry.repo}" if entry.repo else origin
     if entry.repo:
         return f"{entry.source} · {entry.repo}"
     return entry.source
