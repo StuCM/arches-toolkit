@@ -16,6 +16,7 @@ from .commands import migrate as migrate_cmd
 from .commands import patch as patch_cmd
 from .commands import setup_db as setup_db_cmd
 from .commands import install as install_cmd
+from .commands import list_apps as list_apps_cmd
 from .commands import switch_mode as switch_mode_cmd
 from .commands import sync_apps as sync_apps_cmd
 
@@ -75,6 +76,10 @@ app.command(
     "install",
     help="Install the project and all apps from apps.yaml into the venv volume",
 )(install_cmd.install)
+app.command(
+    "list",
+    help="Show apps from apps.yaml with their mode, source, and per-dev install state",
+)(list_apps_cmd.list_apps)
 app.command(
     "dev",
     help="Run docker compose up --watch with auto-discovered overlays",
