@@ -68,6 +68,11 @@ def _dep_spec(entry: AppEntry) -> str:
         ref = entry.ref or DEFAULT_DEVELOP_REF
         return f"{entry.package} @ git+{entry.repo}@{ref}"
     if entry.source == "git":
+        if not entry.repo:
+            raise typer.BadParameter(
+                f"{entry.package}: source is git but no `repo` is set — "
+                "add one to the apps.yaml entry."
+            )
         url = f"git+{entry.repo}"
         if entry.ref:
             url = f"{url}@{entry.ref}"

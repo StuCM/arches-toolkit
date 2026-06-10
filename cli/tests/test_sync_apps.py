@@ -6,6 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+import typer
+
 from arches_toolkit.apps_manifest import AppEntry
 from arches_toolkit._clone import develop_repo_dirname
 from arches_toolkit.commands.sync_apps import (
@@ -112,6 +115,15 @@ def test_dep_spec_git_with_ref():
     assert _dep_spec(entry) == (
         "arches-foo @ git+https://github.com/x/arches-foo.git@v1.2.3"
     )
+
+
+def test_dep_spec_release_git_without_repo_raises():
+    """A git-source release entry with no repo would render `pkg @ git+None`
+    — refuse loudly instead. Same invariant as the develop guard: everything
+    in apps.yaml must be installable by any teammate."""
+    entry = AppEntry(package="arches-foo", source="git", mode="release")
+    with pytest.raises(typer.BadParameter, match="no `repo`"):
+        _dep_spec(entry)
 
 
 def test_dep_spec_develop_renders_as_git_url():
