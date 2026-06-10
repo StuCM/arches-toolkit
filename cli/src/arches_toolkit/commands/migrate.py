@@ -389,8 +389,9 @@ def _execute(
 
     release = list(manifest_mod.iter_release(manifest))
     develop = list(manifest_mod.iter_develop(manifest))
-    typer.echo(sync_apps_cmd._sync_pyproject(release, ctx.target))
-    typer.echo(sync_apps_cmd._sync_compose_apps(develop, ctx.target))
+    # Both modes go in pyproject; develop apps render as git deps and the
+    # editable override happens at `install` time from /workspace.
+    typer.echo(sync_apps_cmd._sync_pyproject(release + develop, ctx.target))
 
     if ctx.legacy_docker is not None and not keep_docker:
         shutil.rmtree(ctx.legacy_docker)
