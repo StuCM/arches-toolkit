@@ -134,7 +134,7 @@ arches-toolkit create app file_uploader --path ..
 
 # 3. After fixing the source, propagate apps.yaml through the rest:
 arches-toolkit sync-apps
-#    - Regenerates pyproject.toml + compose.apps.yaml
+#    - Regenerates pyproject.toml (+ INSTALLED_APPS in settings.py)
 #    - Regenerates uv.lock automatically
 #    - Updates INSTALLED_APPS managed section in settings.py
 
@@ -316,8 +316,9 @@ Or for a git source:
   mode: release
 ```
 
-Then `arches-toolkit sync-apps` removes the bind mount from `compose.apps.yaml`
-and adds the dep to `pyproject.toml`. A `dev --build` installs it at image
+Then `arches-toolkit sync-apps` rewrites the dep in `pyproject.toml` and the
+next `install` drops the editable `/workspace` override, so the app installs
+from the released `git+url@ref` instead. A `dev --build` bakes it in at image
 build time.
 
 ### About `source: pypi` on a freshly-scaffolded app

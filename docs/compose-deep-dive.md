@@ -16,7 +16,7 @@ The toolkit ships two compose files as package data, loaded by `arches-toolkit d
 Two further overlays appear on demand:
 
 - `compose.arches-src.yaml` (package data, included when `ARCHES_SRC` is set) — bind-mounts a local Arches checkout over the image's editable install.
-- `compose.apps.yaml` and `compose.extras.yaml` (project-owned, in project root) — auto-included by the CLI when present. See [compose-extras.md](compose-extras.md).
+- `compose.extras.yaml` (project-owned, in project root) — auto-included by the CLI when present. See [compose-extras.md](compose-extras.md).
 
 The CLI assembles the `-f` chain in `dev.py:_compose_argv()` — order matters for merge semantics (see [YAML anchors and file merging](#yaml-anchors-and-file-merging)).
 

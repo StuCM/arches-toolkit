@@ -69,7 +69,7 @@ This:
 - Tracks managed entries under `[tool.arches-toolkit] managed_apps`, so subsequent edits to `apps.yaml` stay idempotent.
 - For git-sourced entries, writes the full `package @ git+url@ref` form.
 - Canonicalises names (PEP 503), so pre-existing hand-written `arches_controlled_lists` + new managed `arches-controlled-lists` de-duplicate correctly.
-- Generates `compose.apps.yaml` when any entry is in `develop` mode (no-op otherwise).
+- Renders `develop`-mode entries as `package @ git+url@ref` too; the editable override from your local clone happens at `install` time via the `/workspace` mount, not in compose.
 
 ### 4. Delete the legacy `docker/` tree
 

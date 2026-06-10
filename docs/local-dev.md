@@ -69,8 +69,9 @@ docker compose exec web uv sync            # install
 ```
 
 For apps you're developing in lockstep with the project, use
-`--mode develop`; `sync-apps` emits a `compose.apps.yaml` that bind-mounts
-your working copy and does an editable install. Details in
+`--mode develop`; the app is cloned as a sibling of the project and
+`install` force-reinstalls it editable from the permanent `/workspace`
+mount, so your edits are live. Details in
 [../PLAN.md](../PLAN.md) §Applications.
 
 ## Old vs new dependency loop

@@ -1,7 +1,8 @@
 """``arches-toolkit switch-mode`` — flip an app between release and develop.
 
 release → develop: clones the repo to a sibling of the project root if no
-clone exists, then re-runs sync-apps so compose.apps.yaml picks up the mount.
+clone exists, then re-runs sync-apps (which renders the app as a git dep in
+pyproject) and install (which force-reinstalls it editable from /workspace).
 
 develop → release: refuses if the clone has uncommitted or unpushed work
 (override with ``--force``). Never deletes the clone — the directory stays

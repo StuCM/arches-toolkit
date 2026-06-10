@@ -65,7 +65,7 @@ app.command(
     help="One-time setup_db: drop+rebuild project DB, ES indexes, system settings",
 )(setup_db_cmd.setup_db)
 app.command("add-app", help="Add an Arches application to apps.yaml")(add_app_cmd.add_app)
-app.command("sync-apps", help="Apply apps.yaml changes to pyproject.toml + compose.apps.yaml")(
+app.command("sync-apps", help="Apply apps.yaml changes to pyproject.toml + INSTALLED_APPS")(
     sync_apps_cmd.sync_apps
 )
 app.command(

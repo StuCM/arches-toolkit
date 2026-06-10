@@ -31,11 +31,11 @@ class AppEntry:
     repo: str | None = None
     ref: str | None = None
     mode: str = "release"
-    # path: optional override for the sibling directory name used by
-    # compose.apps.yaml's bind mount in develop mode. When unset, sync-apps
-    # derives the dirname from `repo` (stripping `.git`) or falls back to
-    # `package`. Use this when your clone is checked out under a non-default
-    # name — e.g. a branch-named dir like `2.0.x/` instead of `arches-her/`.
+    # path: optional override for the sibling directory name used by the
+    # /workspace bind mount in develop mode. When unset, the dirname is
+    # derived from `repo` (stripping `.git`) or falls back to `package`.
+    # Use this when your clone is checked out under a non-default name —
+    # e.g. a branch-named dir like `2.0.x/` instead of `arches-her/`.
     path: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
