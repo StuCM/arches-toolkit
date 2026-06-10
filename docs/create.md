@@ -95,9 +95,17 @@ The `component` kind has no register step — it's just a Vue file.
 
 ## `create app` lifecycle
 
-`create app` does more than scaffold — if run inside a project (cwd has
-`apps.yaml`), it also **auto-registers** the new app in `apps.yaml` with
-`source: pypi, mode: develop` as a placeholder. Opt out with `--no-register`.
+`create app` scaffolds the app as its own git repository (with a first
+commit) but does **not** register it in `apps.yaml`. That's deliberate:
+everything in `apps.yaml` must be installable by any teammate — `sync-apps`
+runs `uv lock`, which resolves develop entries as `pkg @ git+repo@ref`, so
+the repo must exist *and* the ref must be pushed before an entry can work.
+Registration is one `add-app` away once you've pushed.
+
+Run from a project root (cwd has `apps.yaml`), the scaffold lands as a
+**sibling** of the project — the location the `/workspace` mount and
+`add-app`'s clone convention expect. `--path` overrides; outside a project
+it scaffolds into cwd.
 
 ### Install shapes the toolkit handles
 
@@ -107,83 +115,46 @@ The `component` kind has no register step — it's just a Vue file.
 | `pypi` / `git` | `develop` | yes | yes | Install from remote + overlay clone source for live editing |
 
 Release-mode apps live only in pyproject. Develop-mode apps go through
-pyproject **and** get a bind mount so your clone's edits overlay the
-install. Every app needs a real installable source — there is no "local
-filesystem only" mode today. See **Known limitation** below.
+pyproject **and** get the editable `/workspace` overlay so your clone's
+edits are live. Every app needs a real installable source — there is
+deliberately no "local filesystem only" mode (see **Why no local-only
+mode** below).
 
 ### Brand-new scaffolded app flow
 
 ```bash
-# 1. From the project root, scaffold the app as a sibling dir.
-#    Auto-registers as source: pypi (placeholder), mode: develop.
-arches-toolkit create app file_uploader --path ..
+# 1. From the project root — scaffolds ../arches-file-uploader and
+#    git-inits it with a first commit on main.
+arches-toolkit create app file_uploader
 
-# 2. ⚠ STOP — the app isn't on PyPI yet, so `sync-apps` will fail unless
-#    you fix the source first. Pick one:
-#
-#    (a) Push the scaffold to git, then edit apps.yaml:
-#        source: git
-#        repo: <your-git-url>
-#        ref: main
-#        path: arches-file-uploader
-#
-#    (b) Hand-edit pyproject.toml to add:
-#        "arches-file-uploader @ file:///absolute/path/to/arches-file-uploader"
-#        (Option b makes your uv.lock machine-specific — don't commit it
-#        until you've moved to (a).)
+# 2. Create a remote and push (one-off; any host works):
+git -C ../arches-file-uploader remote add origin git@github.com:your-org/arches-file-uploader.git
+git -C ../arches-file-uploader push -u origin main
 
-# 3. After fixing the source, propagate apps.yaml through the rest:
-arches-toolkit sync-apps
-#    - Regenerates pyproject.toml (+ INSTALLED_APPS in settings.py)
-#    - Regenerates uv.lock automatically
-#    - Updates INSTALLED_APPS managed section in settings.py
+# 3. Register — add-app sees the sibling dir already exists (your scaffold
+#    IS the working tree), then chains sync-apps + install:
+arches-toolkit add-app arches-file-uploader --source git --repo git@github.com:your-org/arches-file-uploader.git --mode develop
 
-# 4. Rebuild so uv sync installs the app + deps in the image.
-arches-toolkit down
-arches-toolkit dev --build
-
-# 5. Edit the app's code freely — bind-mounted, changes are live.
+# 4. Edit the app's code freely — the /workspace overlay makes changes live.
 ```
 
-### Known limitation: brand-new filesystem-only apps
+### Why no local-only mode
 
-A "local-only" mode where scaffolded apps could be used via bind mount
-without any installable source would be ideal but isn't feasible today:
-Arches 8.1's `check_arches_compatibility` system check requires
-`importlib.metadata` to find the app's package metadata, which doesn't
-exist for bind-mounted-only packages. See
-[TASKS.md](../TASKS.md) "Open design problem: scaffolded local-only apps"
-— this is a real gap we want to close. For now, scaffolded apps need to
-either be pushed to git or referenced by file:// URL in pyproject.toml.
+Two hard constraints rule out registering an app that exists only on your
+disk:
 
-### Promoting local → git (when you're ready to share)
+- `sync-apps` runs `uv lock`, and uv resolves `git+repo@ref` deps by
+  fetching the ref — an unpushed scaffold fails the lock for the whole
+  project. `file://` or absolute-path sources lock, but bake your machine's
+  paths into the committed `uv.lock`, breaking everyone else's sync.
+- `apps.yaml` and the managed INSTALLED_APPS block in `settings.py` are
+  committed. Any entry referencing code only you have crashes every other
+  machine's Django at startup (`ModuleNotFoundError`) — no install
+  mechanism can fetch code that was never pushed.
 
-Once you push the scaffold to a git repo, flip the source:
-
-```yaml
-# apps.yaml — change from:
-- package: arches-file-uploader
-  source: local
-  mode: develop
-  path: arches-file-uploader
-
-# to:
-- package: arches-file-uploader
-  source: git
-  repo: https://github.com/your-org/arches-file-uploader.git
-  ref: main
-  mode: develop         # keep develop to maintain the overlay
-  path: arches-file-uploader
-```
-
-```bash
-arches-toolkit sync-apps    # sync-apps auto-runs uv lock
-arches-toolkit down && arches-toolkit dev --build
-```
-
-Now the app is installed from git (via uv sync) AND overlaid by your
-local clone. Your CI and teammates get the installable version; you
-keep the live-editing loop.
+So the invariant is: **registered ⇒ pushed**. `create app` makes the gap
+as small as possible — the scaffold is already a git repo with a commit;
+you add a remote, push, and `add-app --repo` does the rest.
 
 ### Early-stages git-published app (e.g. arches-her on a dev branch)
 
@@ -321,14 +292,13 @@ next `install` drops the editable `/workspace` override, so the app installs
 from the released `git+url@ref` instead. A `dev --build` bakes it in at image
 build time.
 
-### About `source: pypi` on a freshly-scaffolded app
+### About `source` on develop-mode entries
 
-`create app` registers with `source: pypi` by default. This is a placeholder —
-for `mode: develop` entries, sync-apps doesn't consult the `source` field at
-all (the bind mount dirname is derived from the package name instead). When
-you eventually promote to `mode: release`, update `source` + add a `version`
-or `repo`/`ref` — otherwise sync-apps will emit a PEP 508 line for a package
-PyPI doesn't have.
+For `mode: develop` entries the install always comes from `git+repo@ref`
+(plus the editable overlay where a clone exists) regardless of `source` —
+`source` records the *release-mode* origin only. Register scaffolded apps
+with `--source git` so a later switch to release installs from the repo;
+use `--source pypi` for apps whose releases genuinely come from PyPI.
 
 ## Extending templates
 

@@ -390,60 +390,48 @@ bind-mount axis.
 
 ---
 
-## Open design problem: scaffolded local-only apps
+## Design decision: scaffolded apps need a pushed repo
 
-**Status:** unresolved. Needs a design session before picking an approach.
-Now a hard error rather than a silent breakage: `sync-apps` rejects a
-develop entry with no `repo` (would otherwise emit `git+None@main`), so a
-freshly scaffolded app cannot enter develop mode until it has a remote.
+**Status:** resolved 2026-06-10 — local-only apps are deliberately not
+supported; the invariant is **registered ⇒ pushed**.
 
-**Context.** `arches-toolkit create app my_thing` scaffolds a new Arches
-application on disk. Before the user pushes it to git or publishes to PyPI,
-there's no installable source — yet we'd like the app to "just work" in
-the dev stack so newcomers can scaffold, edit, and iterate without git
-ceremony up front.
+**The rule.** Everything in `apps.yaml` must be installable by any
+teammate. Two constraints make this structural, not a preference:
 
-**What we tried (and reverted):** a new `source: local` apps.yaml entry
-that skipped pyproject and relied purely on a bind mount of the Python
-package into `/venv/.../site-packages/<name>`. Arches 8.1's
-`check_arches_compatibility` system check needs `importlib.metadata.requires(config.name)`
-to succeed, which requires a real `.dist-info` directory. A bind-mounted
-package has no `.dist-info`, so the check raises `PackageNotFoundError`
-and the worker crashes at startup. Reverted in late Phase 1 pilot.
+- `sync-apps` runs `uv lock`, and uv resolves `git+repo@ref` develop deps
+  by fetching the ref — an unpushed scaffold fails the lock for the whole
+  project. `file://` / path sources lock but bake machine-specific paths
+  into the committed `uv.lock`.
+- `apps.yaml` and the managed INSTALLED_APPS block in `settings.py` are
+  committed; an entry referencing code only one machine has crashes every
+  other machine's Django at startup. No install mechanism can fetch code
+  that was never pushed — every "local-only" design just moves this crash
+  somewhere later and more confusing.
 
-**Options on the table for a fix:**
+A "venv-only local apps" design (skip pyproject, install editable from
+/workspace, warn on sync) was worked through and rejected for exactly that
+reason: it trades a loud sync-time error on the author's machine for a
+runtime ModuleNotFoundError on a teammate's.
 
-1. **Install at runtime from bind-mounted path.** init service runs `uv pip
-   install -e /opt/apps/<name>` on container start. Generates `.dist-info`,
-   satisfies the check. Tried earlier in Phase 1 — has real issues with
-   version skew between base image arches and project-locked arches,
-   transitive dep resolution, and add/remove idempotency. Reverted to the
-   overlay model. Would need careful redesign.
-2. **Use `file://` URL in pyproject.toml** (`"arches-my-app @ file:///..."`)
-   so uv sync installs with proper metadata. Works, but uv.lock then has
-   absolute paths that don't transfer between machines — fragile for teams.
-   Fine for solo dev.
-3. **Use `[tool.uv.sources]` with a relative path** — uv supports
-   `arches-my-app = { path = "../arches-my-app", editable = true }` which
-   locks with a relative reference. Needs validation that uv handles this
-   cleanly across machines, and we'd need to teach sync-apps to emit a
-   separate [tool.uv.sources] table.
-4. **Scaffold a local git repo on create** (`git init` + first commit)
-   and use `source: git, repo: file:///path/to/repo.git`. A bit magical;
-   leaves a git repo the user may not have wanted yet. But every machine's
-   uv.lock would have a valid git+file:// URL.
-5. **Generate fake `.dist-info` alongside the bind mount** so the metadata
-   check passes. Hacky — we'd be forging package metadata to satisfy a
-   runtime check.
+**What `create app` does instead** (to keep the git ceremony minimal):
+scaffolds to the **sibling** of the project root by default (where the
+`/workspace` mount looks), `git init`s the scaffold with a first commit on
+`main`, and prints the two-step path: push to a remote, then
+`add-app <pkg> --source git --repo <url> --mode develop` (which accepts the
+existing scaffold dir as the working tree, then chains sync + install).
+It does **not** auto-register; remote/repo setup is handled independently
+by the user.
 
-**Constraint to consider.** Whatever we pick must keep teammates able to
-clone the project and run `arches-toolkit dev` without unexpected manual
-steps. Relative paths in uv.lock (option 3) might be the cleanest fit.
+Guards enforcing the invariant: `sync-apps` rejects develop entries with
+no `repo` and git-source release entries with no `repo` (both would
+otherwise emit `git+None` deps); `add-app` requires `--repo` for git
+sources and pypi-develop.
 
-**Convenience to preserve.** `create app` should still auto-register in
-apps.yaml — the user edits apps.yaml once, not once per propagation step.
-Today that auto-registration uses `source: pypi` as a placeholder, and the
-user has to fix the source before `sync-apps` will succeed.
+**Parked alternative** if the one-command push ever becomes real friction:
+keep local-only apps truly local — a gitignored `apps.local.yaml` overlay
+plus INSTALLED_APPS additions in an uncommitted settings file, so committed
+files never reference them. More machinery (two manifests through
+sync/install/list, template changes); not worth it today.
 
 ---
 
