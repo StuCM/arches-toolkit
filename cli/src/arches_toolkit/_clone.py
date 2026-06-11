@@ -1,7 +1,7 @@
 """Clone management for develop-mode apps.
 
 Develop-mode apps live as a sibling clone of the project root, exposed to the
-dev container via the permanent ``..:/workspace:ro`` mount in compose.dev.yaml;
+dev container via the permanent ``..:/workspace`` mount in compose.dev.yaml;
 ``arches-toolkit install`` then force-reinstalls each editable from
 ``/workspace/<dir>``. This module owns the path convention and the safety
 checks for that clone — shared between

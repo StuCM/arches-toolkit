@@ -8,7 +8,7 @@ recreation:
   resolved from the project's pyproject + uv.lock — one ``uv pip install -e .``
   in the container handles the project itself plus all release apps.
 * Develop-mode apps install editable from the permanent ``/workspace`` mount
-  (``..:/workspace:ro`` in compose.dev.yaml), one ``uv pip install -e
+  (``..:/workspace`` in compose.dev.yaml), one ``uv pip install -e
   /workspace/<dirname>`` per app.
 
 When the web service is up, installs go via ``compose exec`` and finish with

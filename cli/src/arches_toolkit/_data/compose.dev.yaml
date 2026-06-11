@@ -26,9 +26,11 @@ x-arches-dev: &arches-dev
     - .:/app
     - venv:/venv
     # Develop-mode app source lives in sibling directories of the project
-    # root; mount the parent dir read-only so `uv pip install -e
-    # /workspace/<dir>` can install editable from a host-owned working tree.
-    - ..:/workspace:ro
+    # root. Writable: setuptools-backend apps must write <pkg>.egg-info/
+    # into their source tree during an editable install (same as a host-side
+    # `pip install -e` would); hatchling builds out-of-tree but most arches
+    # apps are setuptools.
+    - ..:/workspace
     # Shadow the host's node_modules: webpack writes here as uid 1000; any
     # stale host-side tree (e.g. left over from pre-toolkit tooling run as
     # root) never reaches the container.

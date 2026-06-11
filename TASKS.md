@@ -545,10 +545,12 @@ doing the merge and needing the file available for release-mode apps.
 
 **Rejected:** npm `file:`/workspace links to `/workspace/<app>` as the
 *committed* mechanism — container-only paths break the Dockerfile stage
-and host runs, `/workspace` is read-only (npm nests into the link target
-on conflicts), release apps have no clone, and the lockfile would encode
-mount-layout paths. Per-app prebuilt bundles (full isolation) need
-upstream Arches changes — raise there, don't build here.
+and host runs, release apps have no clone, and the lockfile would encode
+mount-layout paths. (The /workspace mount became writable 2026-06-11 —
+setuptools editable installs need to write egg-info into the source tree
+— so the earlier read-only objection no longer applies, but the rejection
+stands on the other grounds.) Per-app prebuilt bundles (full isolation)
+need upstream Arches changes — raise there, don't build here.
 
 **Rejected: overlay with `--save` instead of `--no-save`** (flatten the
 app's deps into the project's committed package.json, user uninstalls
