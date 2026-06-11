@@ -92,6 +92,37 @@ def _run_install(project_root: Path, script: str, *, web_up: bool) -> None:
         raise typer.Exit(completed.returncode)
 
 
+# Mirrors the init service's warm-start REGEN in compose.dev.yaml — keep in sync.
+FRONTEND_REGEN_SNIPPET = """\
+import django
+django.setup()
+from arches.app.utils.frontend_configuration_utils.generate_frontend_configuration import generate_frontend_configuration
+generate_frontend_configuration()
+print("frontend_configuration: regenerated")
+"""
+
+
+def _regen_frontend_configuration(project_root: Path) -> None:
+    """Regenerate webpack-metadata.json (and friends) after an install.
+
+    ARCHES_APPLICATIONS_PATHS bakes in where each app's module *resolves* —
+    site-packages for release installs, /workspace for editable develop
+    clones — so any add-app or switch-mode (either direction) leaves webpack
+    compiling stale paths until this runs and webpack restarts on it.
+    Failure is a warning, not fatal: the stack still works for backend code.
+    """
+    argv = cw._compose_base_argv(project_root) + [
+        "exec", "-T", "web", "python", "-c", FRONTEND_REGEN_SNIPPET,
+    ]
+    typer.echo("+ regenerating frontend_configuration (exec web)")
+    completed = subprocess.run(argv, env=cw._compose_env())
+    if completed.returncode != 0:
+        typer.echo(
+            "warning: frontend_configuration regen failed — webpack may compile "
+            "stale app paths; `arches-toolkit down && arches-toolkit dev` to recover"
+        )
+
+
 def _run_migrate(project_root: Path) -> None:
     """Apply any pending Django migrations — a fast no-op when there are none.
 
@@ -108,10 +139,14 @@ def _run_migrate(project_root: Path) -> None:
 
 
 def _restart_services(project_root: Path) -> None:
+    # webpack restarts too: a running dev server can't re-read its config, so
+    # the freshly regenerated app paths only take effect on a process restart.
+    # Cheap beyond the inherent first compile — the startup stamp check skips
+    # npm install when package.json is unchanged.
     argv = cw._compose_base_argv(project_root) + [
-        "restart", "web", "worker", "api",
+        "restart", "web", "worker", "api", "webpack",
     ]
-    typer.echo(f"+ {' '.join(argv[-5:])}")
+    typer.echo(f"+ {' '.join(argv[-6:])}")
     subprocess.run(argv, env=cw._compose_env())
 
 
@@ -146,6 +181,7 @@ def install(
     if web_up and not no_migrate:
         _run_migrate(project_root)
     if web_up and not no_restart:
+        _regen_frontend_configuration(project_root)
         _restart_services(project_root)
     elif not web_up:
         typer.echo(
