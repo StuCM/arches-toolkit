@@ -22,10 +22,15 @@ BASELINE = ("compose.yaml", "compose.dev.yaml")
 PROJECT_OVERLAYS = ("compose.extras.yaml",)
 ARCHES_SRC_OVERLAY = "compose.arches-src.yaml"
 
-# Services whose logs narrate progress. Infrastructure (db, elasticsearch,
-# rabbitmq, cantaloupe) is muted by default — its failures still surface via
-# depends_on / healthcheck errors. --verbose attaches everything.
-ATTACH_SERVICES = ("init", "web", "api", "worker", "webpack")
+# All baseline services are muted by default: compose's live progress tree
+# (Created/Waiting/Healthy/Started transitions) is the minimal startup view,
+# and failures still surface via depends_on / "didn't complete successfully"
+# errors. `arches-toolkit logs -f [service]` streams any of them on demand;
+# --verbose attaches everything.
+BASELINE_SERVICES = (
+    "db", "elasticsearch", "rabbitmq", "cantaloupe",
+    "init", "web", "api", "worker", "webpack",
+)
 
 
 def _package_data_path(name: str) -> Path:
@@ -68,8 +73,8 @@ def _compose_argv(
     if build:
         argv.append("--build")
     if not _output.is_verbose():
-        for service in ATTACH_SERVICES:
-            argv += ["--attach", service]
+        for service in BASELINE_SERVICES:
+            argv += ["--no-attach", service]
     argv += list(extra)
     return argv
 
@@ -119,6 +124,11 @@ def dev(
         typer.echo(" ".join(argv))
         return
     _output.stage("Starting the dev stack (docker compose up --watch)")
+    if not _output.is_verbose():
+        typer.echo("    Ready when `web` shows Started — http://localhost:8000")
+        typer.echo(
+            "    Logs: arches-toolkit logs -f [service] · full stream: arches-toolkit -v dev"
+        )
     _output.cmd(f"ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
     _output.cmd(argv)
     completed = subprocess.run(argv, env=env)

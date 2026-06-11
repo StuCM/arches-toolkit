@@ -87,32 +87,32 @@ def test_dev_no_arches_src_no_overlay(runner: CliRunner, project_dir: Path, monk
     assert "ARCHES_SRC=" not in result.output
 
 
-def test_dev_attaches_narrating_services_by_default(
+def test_dev_mutes_all_service_logs_by_default(
     runner: CliRunner, project_dir: Path, monkeypatch
 ):
-    """Quiet default: only init/web/api/worker/webpack logs stream; the
-    infrastructure firehose (db, elasticsearch, …) is muted."""
+    """Minimal default: no service logs stream — compose's progress tree is
+    the startup view; `logs -f` / --verbose bring streams back."""
     monkeypatch.delenv("ARCHES_SRC", raising=False)
     result = runner.invoke(
         main_module.app,
         ["dev", "--project-root", str(project_dir), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
-    assert "--attach init" in result.output
-    assert "--attach webpack" in result.output
+    assert "--no-attach webpack" in result.output
+    assert "--no-attach elasticsearch" in result.output
 
 
 def test_dev_verbose_attaches_everything(
     runner: CliRunner, project_dir: Path, monkeypatch
 ):
-    """--verbose drops the attach restriction — full compose log stream."""
+    """--verbose drops the muting — full compose log stream."""
     monkeypatch.delenv("ARCHES_SRC", raising=False)
     result = runner.invoke(
         main_module.app,
         ["-v", "dev", "--project-root", str(project_dir), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
-    assert "--attach" not in result.output
+    assert "--no-attach" not in result.output
 
 
 def test_dev_shell_env_adds_overlay(
