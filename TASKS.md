@@ -631,6 +631,35 @@ conflict.
 
 ---
 
+## Smoke test outcome (2026-06-11, arches dev/8.2.x)
+
+Full lifecycle exercised on a fresh project against an 8.2 base image:
+init → dev (cold start) → add-app (release) → migrate → switch-mode
+develop → live-edit via /workspace → switch back to release. Twelve
+fixes landed from findings (init image-flag/entrypoint/version-pin
+hardening, whitespace-tolerant webpack healthcheck, watch-rebuild
+removal, install auto-migrate + warm-start init migrate, writable
+/workspace, frontend-config regen + webpack restart on install,
+postgis 16 default, switch-mode rollback). One app bug found
+(arches-id-generator migration missing a `models` dependency — exactly
+what the app-harness backlog idea would catch in app CI).
+
+Follow-ups not yet done:
+
+- **Idempotent init bootstrap.** init's cold/warm probe (any
+  `django_migrations` row) means a bootstrap that fails partway leaves a
+  DB the warm path never repairs (cache table / ES indexes / System
+  Settings seed skipped forever); recovery requires knowing to wipe the
+  volume. Better: drop the probe, make every step idempotent (migrate and
+  createcachetable already are; the settings seed has a graph-existence
+  check; `es setup_indexes` needs verifying) and run them all every boot —
+  self-healing at the cost of seconds.
+- **Cold-start signposting** (see open issue above) — every wait in the
+  smoke test re-confirmed it: first boot and post-install webpack restarts
+  both look hung while healthy.
+
+---
+
 ## Ideas from HE/arches-containers comparison (backlog)
 
 Surfaced from a comparison of `HistoricEngland/arches-containers` (the `act`
