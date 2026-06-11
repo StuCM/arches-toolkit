@@ -110,7 +110,7 @@ def check_clone_safety(entry: AppEntry, project_root: Path) -> list[str]:
             ["git", "rev-list", "@{u}..HEAD"],
             cwd=path, capture_output=True, text=True,
         )
-        lines = [l for l in unpushed.stdout.splitlines() if l.strip()]
+        lines = [line for line in unpushed.stdout.splitlines() if line.strip()]
         if lines:
             issues.append(
                 f"{len(lines)} unpushed commit(s) on "

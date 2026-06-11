@@ -7,6 +7,7 @@ import logging
 import typer
 
 from . import __version__
+from . import _output
 from .commands import add_app as add_app_cmd
 from .commands import compose_wrappers
 from .commands import create as create_cmd
@@ -44,10 +45,12 @@ def _root(
         help="Show version and exit",
     ),
     verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Verbose logging (INFO level)"
+        False, "--verbose", "-v",
+        help="Verbose output: full command lines + INFO logging",
     ),
 ) -> None:
     """Top-level options shared across subcommands."""
+    _output.set_verbose(verbose)
     logging.basicConfig(
         level=logging.INFO if verbose else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",

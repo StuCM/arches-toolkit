@@ -20,9 +20,15 @@ def _project(tmp_path: Path) -> Path:
 def test_install_script_no_develop_apps(tmp_path: Path) -> None:
     script = _build_install_script([], _project(tmp_path))
     lines = script.splitlines()
-    assert lines[0] == "set -eux"
-    assert any("uv pip install" in l and "-e ." in l for l in lines)
+    assert lines[0] == "set -eu"
+    assert any("uv pip install" in line and "-e ." in line for line in lines)
     assert "/workspace" not in script
+
+
+def test_install_script_verbose_traces_commands(tmp_path: Path) -> None:
+    """--verbose turns on shell tracing inside the container script."""
+    script = _build_install_script([], _project(tmp_path), verbose=True)
+    assert script.splitlines()[0] == "set -eux"
 
 
 def test_install_script_includes_prerelease_allow(tmp_path: Path) -> None:

@@ -30,6 +30,7 @@ import tomlkit
 import typer
 from tomlkit.items import Array, Table
 
+from .. import _output
 from .. import apps_manifest as manifest_mod
 from ..apps_manifest import AppEntry, AppsManifest
 
@@ -415,6 +416,7 @@ def _run_uv_lock(project_root: Path) -> str:
     """
     if shutil.which("uv") is None:
         return "uv.lock: skipped (uv not on PATH; run `uv lock` yourself)"
+    _output.stage("Locking dependencies (uv lock)")
     result = subprocess.run(
         ["uv", "lock", "--prerelease=allow"],
         cwd=project_root,
@@ -456,6 +458,7 @@ def sync_apps(
         raise typer.BadParameter(
             f"{manifest_path}: not found — run `arches-toolkit add-app` first"
         )
+    _output.stage("Syncing project files from apps.yaml")
     manifest: AppsManifest = manifest_mod.load(manifest_path)
     release = list(manifest_mod.iter_release(manifest))
     develop = list(manifest_mod.iter_develop(manifest))

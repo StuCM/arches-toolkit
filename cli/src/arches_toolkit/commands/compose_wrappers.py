@@ -15,6 +15,8 @@ from typing import Sequence
 
 import typer
 
+from .. import _output
+
 PACKAGE_DATA = "arches_toolkit._data"
 BASELINE = ("compose.yaml", "compose.dev.yaml")
 PROJECT_OVERLAYS = ("compose.extras.yaml",)
@@ -59,7 +61,7 @@ def _run_compose(project_root: Path, subcommand_argv: Sequence[str]) -> None:
     if shutil.which("docker") is None:
         raise typer.BadParameter("docker not found on PATH")
     argv = _compose_base_argv(project_root) + list(subcommand_argv)
-    typer.echo(f"+ {' '.join(argv)}")
+    _output.cmd(argv)
     completed = subprocess.run(argv, env=_compose_env())
     raise typer.Exit(completed.returncode)
 

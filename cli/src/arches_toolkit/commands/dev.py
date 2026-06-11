@@ -15,6 +15,8 @@ from pathlib import Path
 
 import typer
 
+from .. import _output
+
 PACKAGE_DATA = "arches_toolkit._data"
 BASELINE = ("compose.yaml", "compose.dev.yaml")
 PROJECT_OVERLAYS = ("compose.extras.yaml",)
@@ -103,9 +105,13 @@ def dev(
     if arches_src:
         env["ARCHES_SRC"] = arches_src
 
-    typer.echo(f"+ ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
-    typer.echo(f"+ {' '.join(argv)}")
     if dry_run:
+        # --dry-run's whole purpose is showing the invocation — always print.
+        typer.echo(f"ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
+        typer.echo(" ".join(argv))
         return
+    _output.stage("Starting the dev stack (docker compose up --watch)")
+    _output.cmd(f"ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
+    _output.cmd(argv)
     completed = subprocess.run(argv, env=env)
     raise typer.Exit(completed.returncode)

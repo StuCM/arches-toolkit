@@ -29,6 +29,7 @@ from pathlib import Path
 
 import typer
 
+from .. import _output
 from .. import apps_manifest as manifest_mod
 from .._clone import develop_repo_dirname
 from . import compose_wrappers as cw
@@ -56,6 +57,7 @@ def _web_is_running(project_root: Path) -> bool:
 def _build_install_script(
     develop_apps: list[manifest_mod.AppEntry],
     project_root: Path,
+    verbose: bool = False,
 ) -> str:
     """Shell script body that installs the project + editable overrides.
 
@@ -67,7 +69,7 @@ def _build_install_script(
     state for colleagues who haven't switched to working on this app yet.
     """
     lines = [
-        "set -eux",
+        "set -eux" if verbose else "set -eu",
         "uv pip install --python /venv/bin/python --prerelease=allow -e .",
     ]
     workspace_root = project_root.resolve().parent
@@ -88,7 +90,8 @@ def _run_install(project_root: Path, script: str, *, web_up: bool) -> None:
         argv = base + ["exec", "-T", "web", "sh", "-euc", script]
     else:
         argv = base + ["run", "--rm", "--entrypoint", "sh", "web", "-euc", script]
-    typer.echo(f"+ {' '.join(argv[:6])} … (install script)")
+    _output.stage("Installing project + apps into the venv")
+    _output.cmd(argv)
     completed = subprocess.run(argv, env=cw._compose_env())
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
@@ -116,7 +119,8 @@ def _regen_frontend_configuration(project_root: Path) -> None:
     argv = cw._compose_base_argv(project_root) + [
         "exec", "-T", "web", "python", "-c", FRONTEND_REGEN_SNIPPET,
     ]
-    typer.echo("+ regenerating frontend_configuration (exec web)")
+    _output.stage("Regenerating frontend configuration")
+    _output.cmd(argv)
     completed = subprocess.run(argv, env=cw._compose_env())
     if completed.returncode != 0:
         typer.echo(
@@ -134,7 +138,8 @@ def _run_migrate(project_root: Path) -> None:
     argv = cw._compose_base_argv(project_root) + [
         "exec", "-T", "web", "python", "manage.py", "migrate", "--noinput",
     ]
-    typer.echo(f"+ {' '.join(argv[-6:])}")
+    _output.stage("Applying database migrations")
+    _output.cmd(argv)
     completed = subprocess.run(argv, env=cw._compose_env())
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
@@ -148,7 +153,8 @@ def _restart_services(project_root: Path) -> None:
     argv = cw._compose_base_argv(project_root) + [
         "restart", "web", "worker", "api", "webpack",
     ]
-    typer.echo(f"+ {' '.join(argv[-6:])}")
+    _output.stage("Restarting services (web, worker, api, webpack)")
+    _output.cmd(argv)
     subprocess.run(argv, env=cw._compose_env())
 
 
@@ -175,7 +181,7 @@ def install(
     manifest = manifest_mod.load(manifest_path)
     develop = list(manifest_mod.iter_develop(manifest))
 
-    script = _build_install_script(develop, project_root)
+    script = _build_install_script(develop, project_root, verbose=_output.is_verbose())
 
     web_up = _web_is_running(project_root)
     _run_install(project_root, script, web_up=web_up)
