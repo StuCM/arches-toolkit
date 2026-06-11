@@ -455,6 +455,18 @@ one resolution pass: deps are *declared* per app, *installed* at the root.
 fetches the git ref and installs core's frontend deps *transitively*. The
 pip install and the npm install are parallel views of the same source.
 
+**To be clear about what's load-bearing:** Arches has *no* mechanism for
+app npm deps (hence upstream's hand-copy docs). The transitive install is
+plain npm behaviour — any dep's deps install transitively — and the whole
+design is making the app *be* an npm dep of the project, extending the
+core pattern. The toolkit's only role is maintaining that one line per
+app. Nothing app-side is toolkit-specific: an app declares deps in a
+standard root `package.json`, so **non-toolkit consumers degrade
+gracefully** — they add the same one-line git dep by hand (vanilla npm,
+documented in the app README; tracks dep changes across app bumps), or
+fall back to today's hand-copy, which the declared file makes easier, not
+harder. Worth proposing the convention to upstream's app-developer docs.
+
 **Design (A′ + local overlay)** — two layers, mirroring exactly how Python
 deps work for develop apps (committed artifacts reference pushed refs;
 local clone overlaid after):
@@ -504,9 +516,16 @@ ordering constraint holds regardless of the --no-save choice below.)
 
 **Prerequisites.**
 - Apps declare frontend deps in a root `package.json`; the `create app`
-  scaffold should ship a minimal one (today it ships none).
+  scaffold should ship a minimal one (today it ships none). Keep it
+  script-light: npm runs `prepare` scripts when installing git deps, so
+  either declare no lifecycle scripts or guarantee they run on a bare
+  `npm install`.
 - pypi-released apps need git tags matching released versions (`v<x.y.z>`)
   for the ref derivation. State as a convention for F&T apps.
+- F&T app CI should sanity-check that the declared deps match what the
+  frontend code imports — a drifted package.json fails consumers the old
+  way. (The standalone app harness idea in the HE backlog would catch
+  this naturally.)
 
 **Known costs.**
 - npm fetches git refs, so private app repos need git auth wherever npm
