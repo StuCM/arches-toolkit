@@ -565,6 +565,70 @@ the overlay installed and surfacing npm overlay state in `list`.
 
 ---
 
+## Design proposal: native docker compose for running-container commands
+
+**Status:** designed 2026-06-11, not implemented. Sequence after the e2e
+smoke test — refactor compose plumbing against a validated baseline.
+
+**Problem.** Every raw `docker compose` command fails in a project today,
+because two ingredients exist only inside the wrapper at runtime: the
+file list (`-f /site-packages/.../compose.yaml -f …` — nothing in the
+project tree) and the interpolation values (`ARCHES_TOOLKIT_DOCKERFILE`,
+`ARCHES_SRC` injected into the process env). Consequence: seven bespoke
+pass-through wrappers in compose_wrappers.py (`logs`/`ps`/`exec`/
+`restart`/`down`/`build`/`manage`), a wrapper surface that grows with
+compose's, and no native tooling (IDE integrations, muscle memory).
+
+**Constraint that shapes the answer (do not regress):** the packaged
+compose files being the ONLY copy is deliberate — one versioned source of
+truth; a toolkit upgrade changes every project's stack immediately;
+per-project drift is structurally impossible, not just discouraged.
+
+**Key fact.** Compose v2 splits into two command classes:
+- *File-needing*: `up`, `build`, `config` — define what runs. Exactly
+  where versioned-config enforcement matters; keep behind the wrapper.
+- *Label-based*: `ps`, `logs`, `exec`, `restart`, `down` — resolve
+  running containers via the `com.docker.compose.project=<name>` label
+  and work with **no compose files at all** (`docker compose -p <name>
+  logs web`). For these, only the project *name* is missing, not the
+  files.
+
+**Design.**
+1. Toolkit-managed `COMPOSE_PROJECT_NAME=<name>` line in `.env`
+   (machine-independent, no paths, nothing generated). Raw
+   `docker compose ps/logs/exec/restart/down` then work natively from
+   the project root. *Verify first:* compose reads `.env` for the project
+   name with no config file present (2-minute test); fallback is a
+   documented shell export or keeping thin aliases.
+2. Collapse the seven wrappers to one generic escape hatch:
+   `arches-toolkit compose <args…>` — canonical `-f` stack + env, rest
+   passed through verbatim. Any compose subcommand runs against the
+   packaged truth. `dev` stays the curated `up --watch` entry point;
+   keep `manage` (genuine sugar).
+3. Nothing is ever copied into the project tree.
+
+Side benefit: an explicit managed `COMPOSE_PROJECT_NAME` is the first
+concrete step toward the multi-project registry idea below — today the
+name is inferred from the directory, which is exactly how compose-name
+collisions happen.
+
+**Rejected: materialize the stack into the project** (gitignored
+`.arches-toolkit/` copies + `COMPOSE_FILE` relative paths in `.env`,
+making ALL raw compose commands work, incl. `up`). Buys IDE integration
+and inspectability, but reintroduces the drift the package-only model
+exists to prevent: stale copies after a toolkit upgrade if the user only
+runs raw compose, and hand-edits surviving in a gitignored dir. Stamps
+and do-not-edit headers mitigate; package-only makes drift impossible.
+One source of truth wins — especially for `up`/`build`, where running
+last-version YAML causes real bugs.
+
+**Rejected: compose `include:`** in a small committed compose.yaml —
+`include` has no override-merge; the `compose.yaml` + `compose.dev.yaml`
+model depends on `-f` overlay semantics, which include rejects on
+conflict.
+
+---
+
 ## Ideas from HE/arches-containers comparison (backlog)
 
 Surfaced from a comparison of `HistoricEngland/arches-containers` (the `act`
