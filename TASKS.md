@@ -435,6 +435,117 @@ sync/install/list, template changes); not worth it today.
 
 ---
 
+## Design proposal: app-owned npm dependencies
+
+**Status:** designed 2026-06-10, not implemented. Next sizeable feature.
+
+**Problem.** Arches has one webpack build per project; app frontend
+sources are compiled into it (via the frontend_configuration paths), but
+their `import`s resolve against the project's `node_modules`. pip never
+populates `node_modules`, so today an app's npm deps must be hand-copied
+into the project's `package.json` (upstream's documented answer) — the
+old-toolkit pain. Worse, apps actively must NOT install their own deps:
+Node resolution walks up from the importing file, so a sibling clone with
+its own `node_modules` shadows the project's copies and can bundle a
+second `vue` (silently breaks reactivity/provide-inject). One bundle ⇒
+one resolution pass: deps are *declared* per app, *installed* at the root.
+
+**Precedent.** Arches core already solves this for itself: the project's
+`package.json` has `"arches": "archesproject/arches#stable/8.1.x"` — npm
+fetches the git ref and installs core's frontend deps *transitively*. The
+pip install and the npm install are parallel views of the same source.
+
+**Design (A′ + local overlay)** — two layers, mirroring exactly how Python
+deps work for develop apps (committed artifacts reference pushed refs;
+local clone overlaid after):
+
+1. **Committed layer — push to share.** `sync-apps` manages one npm entry
+   per app in the project's `package.json`:
+   `"arches-foo": "github:org/arches-foo#<ref>"` — ref derived as on the
+   Python side (git source → `ref`; pypi source → `v<version>` tag by
+   convention). npm reads the app's own `package.json` at that ref and
+   owns transitive resolution/dedup/conflict-nesting — the toolkit never
+   parses or merges dep lists. The app's JS landing in
+   `node_modules/arches-foo` is dead weight (webpack compiles from
+   site-packages or the clone); its *dependencies* at the root are the
+   point. Teammates, CI, and the Dockerfile `npm ci` stage all resolve
+   from refs; committed package.json + lockfile stay machine-independent.
+   JSON has no comments, so managed entries are tracked under an
+   npm-ignored root key (e.g. `"archesToolkit": {"managedDependencies":
+   [...]}`), mirroring `[tool.arches-toolkit] managed_apps`.
+2. **Local overlay — iterate without pushing.** For each develop app with
+   a sibling clone, the dev loop reads `/workspace/<dir>/package.json` and
+   `npm install --no-save`s its declared deps into the root
+   `node_modules` — committed files untouched, live on next webpack
+   restart. npm analogue of `uv pip install -e /workspace/<dir>`. Natural
+   home: the webpack service startup script (which already has the
+   stamp-based reinstall hook) and/or `arches-toolkit install`. Same drift
+   contract as the venv: overlay diverges from the lockfile until pushed,
+   and a volume rebuild reverts to committed state until re-applied.
+
+Net contract: **push a dep to share it, not to use it** — teammates get a
+new npm dep at the same moment they get the code that imports it.
+
+**Deployment path (cloud/prod): unaffected by construction.** Image builds
+consume only the committed layer — `npm ci` from package.json + lock,
+`uv sync --frozen` from uv.lock — and both lockfiles pin git refs to
+concrete SHAs, so builds are reproducible with no mounts or overlays. The
+deployed environment is just another teammate: unpushed overlay deps fail
+the image build loudly at webpack compile (the right place), and the only
+new prod-path requirement is git auth for npm/uv ref fetches in CI (see
+known costs). Process convention: `switch-mode <app> release` (pinned
+versions) before promoting to production; develop-mode deploys are
+SHA-locked branch tips, fine for staging.
+
+The overlay must re-apply *after* the webpack service's stamp-based
+`npm install` in the same startup script — a plain install reconciles
+node_modules against committed files and can prune overlay deps. (This
+ordering constraint holds regardless of the --no-save choice below.)
+
+**Prerequisites.**
+- Apps declare frontend deps in a root `package.json`; the `create app`
+  scaffold should ship a minimal one (today it ships none).
+- pypi-released apps need git tags matching released versions (`v<x.y.z>`)
+  for the ref derivation. State as a convention for F&T apps.
+
+**Known costs.**
+- npm fetches git refs, so private app repos need git auth wherever npm
+  runs (webpack container, Dockerfile frontend stage). Same class of
+  problem as `uv lock` fetching `git+repo@ref`, but npm's auth story is
+  clunkier.
+- Version-conflict policy: start with warn-and-let-npm-nest (nesting is
+  fine for non-singleton packages) + a hard error list for singletons
+  (`vue`, `pinia`, …) where nesting means a broken bundle.
+
+**Fallback if npm git auth bites** ("A"): sync-apps reads each app's
+`package.json` itself (sibling clone, or shipped in the wheel as package
+data) and merges the union into the project's `dependencies` under managed
+tracking, with semver-intersection conflict detection. Registry-only
+project package.json — no npm auth needed — at the cost of the toolkit
+doing the merge and needing the file available for release-mode apps.
+
+**Rejected:** npm `file:`/workspace links to `/workspace/<app>` as the
+*committed* mechanism — container-only paths break the Dockerfile stage
+and host runs, `/workspace` is read-only (npm nests into the link target
+on conflicts), release apps have no clone, and the lockfile would encode
+mount-layout paths. Per-app prebuilt bundles (full isolation) need
+upstream Arches changes — raise there, don't build here.
+
+**Rejected: overlay with `--save` instead of `--no-save`** (flatten the
+app's deps into the project's committed package.json, user uninstalls
+unwanted ones). The overlay deps are *derived* state — read mechanically
+from the app's package.json; persisting derived state into a committed
+file leaves residue: after the app push the flattened copies are redundant
+with the git-ref entry's transitive resolution; shared deps across apps
+make manual uninstall unsafe (A drops `leaflet`, B still needs it); and
+the project file becomes an untracked mix of project-own and app-flattened
+deps — the old hand-copy model with a manual remove side. Python symmetry:
+`uv pip install -e` doesn't write the app's deps into pyproject either.
+The real `--no-save` downside is invisibility — mitigate by logging what
+the overlay installed and surfacing npm overlay state in `list`.
+
+---
+
 ## Ideas from HE/arches-containers comparison (backlog)
 
 Surfaced from a comparison of `HistoricEngland/arches-containers` (the `act`
