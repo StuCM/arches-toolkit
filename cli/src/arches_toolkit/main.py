@@ -85,7 +85,7 @@ app.command(
 )(list_apps_cmd.list_apps)
 app.command(
     "dev",
-    help="Run docker compose up --watch with auto-discovered overlays",
+    help="Start the dev stack (detached, with readiness milestones); edits live-reload via bind mounts",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(dev_cmd.dev)
 

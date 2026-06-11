@@ -191,7 +191,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 |---|---|
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
 | `arches-toolkit create <kind> <name>` | Scaffold a widget / plugin / component / app / etc. (see [docs/create.md](docs/create.md)) |
-| `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
+| `arches-toolkit dev` | Start the dev stack detached with readiness milestones; edits live-reload via bind mounts |
 | `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml` + INSTALLED_APPS block from `apps.yaml` |

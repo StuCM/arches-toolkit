@@ -6,10 +6,11 @@ The project directory only needs an optional project-specific
 
 Default flow: ``docker compose up -d`` with compose's own progress display
 silenced, a readiness poll printing one milestone per startup phase, then
-``docker compose watch --no-up`` in the foreground for file syncing. Ctrl-C
-stops the watcher only — the stack keeps running (``arches-toolkit down``
-stops it). ``--verbose`` reverts to a fully attached ``up --watch`` with the
-complete log stream.
+exit — the stack keeps running and edits live-reload via the ``.:/app``
+bind mount (runserver autoreload / watchfiles / webpack's watcher). There
+is no compose-watch layer: watch refuses to monitor bind-mounted paths.
+``arches-toolkit down`` stops the stack. ``--verbose`` runs a fully
+attached ``up`` with the complete log stream instead.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ def _up_argv(
 ) -> list[str]:
     argv = _compose_base(project_root, compose_files)
     if _output.is_verbose():
-        argv += ["up", "--watch"]
+        argv += ["up"]
     else:
         # --progress quiet: our readiness milestones are the narrative;
         # compose's own progress tree would duplicate them.
@@ -255,7 +256,7 @@ def dev(
         return
 
     if _output.is_verbose():
-        _output.stage("Starting the dev stack (docker compose up --watch, full logs)")
+        _output.stage("Starting the dev stack (docker compose up, full logs)")
         _output.cmd(f"ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
         _output.cmd(argv)
         completed = subprocess.run(argv, env=env)
@@ -273,15 +274,8 @@ def dev(
         )
         raise typer.Exit(130)
 
-    _output.stage(
-        "Watching for file changes — Ctrl-C stops watching; "
-        "`arches-toolkit down` stops the stack"
-    )
-    try:
-        subprocess.run(base_argv + ["watch", "--no-up"], env=env)
-    except KeyboardInterrupt:
-        pass
+    _output.stage("Dev stack is running")
+    typer.echo("    Edits live-reload via the bind mount — no watcher process needed.")
     typer.echo(
-        "\nStopped watching. The stack is still running — "
-        "`arches-toolkit down` to stop it."
+        "    Logs: arches-toolkit logs -f [service] · stop: arches-toolkit down"
     )

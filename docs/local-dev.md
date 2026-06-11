@@ -102,20 +102,18 @@ The dev overlay exposes `5678:5678` and starts `web` under
 The runserver process doesn't block on attach — hit the endpoint you want
 to trace, then attach the debugger to catch the next request.
 
-## File watch and hot reload
+## Hot reload
 
-`compose.dev.yaml` registers `develop.watch` rules:
+Live editing needs no watcher process: the `.:/app` bind mount means every
+save is instantly visible inside the containers, where Django's autoreload
+(web), watchfiles (worker), and webpack's own watcher pick it up. There is
+deliberately no compose `develop.watch` section — compose watch refuses to
+monitor bind-mounted paths, so it could never add anything here.
 
-| Path | Action |
-|---|---|
-| `**/*.py`, `**/*.html`, `**/*.css`, `**/*.js`, `**/*.vue` | `sync` — copied in-place; Django autoreload / webpack HMR picks them up |
-
-`sync` updates happen in well under a second. Dependency changes
-(`pyproject.toml`/`uv.lock`) deliberately do **not** trigger a rebuild —
-the venv named volume shadows the image's `/venv`, so run
-`arches-toolkit install` instead (seconds, targeted restart); rebuild
-explicitly with `arches-toolkit dev --build` only for Dockerfile or base
-image changes.
+Dependency changes (`pyproject.toml`/`uv.lock`) don't hot-reload — run
+`arches-toolkit install` (seconds, targeted restart); rebuild explicitly
+with `arches-toolkit dev --build` only for Dockerfile or base image
+changes.
 
 ## Project-specific services
 

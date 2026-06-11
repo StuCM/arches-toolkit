@@ -39,22 +39,11 @@ x-arches-dev: &arches-dev
     - uploadedfiles:/var/arches/uploadedfiles
     - static_root:/var/arches/static_root
     - logs:/var/arches/logs
-  develop:
-    watch:
-      # No rebuild rules for pyproject.toml/uv.lock: the named venv volume
-      # shadows the image's /venv at runtime, so a watch-triggered image
-      # rebuild changes nothing — `arches-toolkit install` is the dep-change
-      # mechanism (writes the volume + targeted restart). Rebuilds are
-      # explicit via `arches-toolkit dev --build`.
-      - action: sync
-        path: .
-        target: /app
-        ignore:
-          - .git/
-          - .venv/
-          - node_modules/
-          - "**/__pycache__/"
-          - "**/*.pyc"
+  # No `develop.watch` section: the .:/app bind mount IS the live-edit
+  # mechanism (runserver autoreload, watchfiles, webpack's own watcher pick
+  # changes up), and compose watch refuses to monitor bind-mounted paths
+  # anyway. Dep changes go through `arches-toolkit install`; image rebuilds
+  # are explicit via `arches-toolkit dev --build`.
 
 services:
 

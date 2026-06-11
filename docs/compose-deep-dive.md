@@ -11,7 +11,7 @@ Reference for the toolkit's docker compose configuration: every service, every e
 The toolkit ships two compose files as package data, loaded by `arches-toolkit dev`:
 
 - [compose.yaml](../cli/src/arches_toolkit/_data/compose.yaml) — prod-shaped baseline. All eight services, all named volumes. Runnable on its own against the prod image target.
-- [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) — dev overlay. Switches to `target: dev`, bind-mounts the project source at `/app`, exposes ports, adds debugpy, redirects frontend configuration to the source tree, registers watch rules.
+- [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) — dev overlay. Switches to `target: dev`, bind-mounts the project source at `/app`, exposes ports, adds debugpy, redirects frontend configuration to the source tree.
 
 Two further overlays appear on demand:
 
@@ -297,7 +297,7 @@ Borrowed from the arches-quartz `db.command:` block. Swaps in on `dev up`; won't
 
 The single most important dev feature. Replaces the image's baked-in `/app` (the project source copy from `COPY . /app`) with a live view of the host repo. Edits in your editor are visible inside the container immediately, no rebuild.
 
-Watch rules in `develop.watch` (lines 30-44) mirror the bind mount for Windows/Mac hosts where bind-mount performance is poor — compose's watch feature copies files via a side channel instead. On Linux the bind mount alone is enough, but the watch rules are harmless.
+There is no `develop.watch` section: compose watch refuses to monitor paths that are also bind-mounted (it warns "this path won't be monitored"), so with the `.:/app` mount in place a watch rule can never contribute anything. The bind mount plus each process's own watcher (runserver autoreload, watchfiles, webpack) is the complete hot-reload story.
 
 There are deliberately no `rebuild` triggers for `pyproject.toml`/`uv.lock`: the named `venv` volume shadows the image's `/venv` at runtime, so a watch-triggered image rebuild changes nothing the running stack can see — and it needlessly recreates every dev service (including webpack, losing its warm compile). Dependency changes flow through `arches-toolkit install` (writes the venv volume + targeted restart); image rebuilds are explicit via `arches-toolkit dev --build`.
 

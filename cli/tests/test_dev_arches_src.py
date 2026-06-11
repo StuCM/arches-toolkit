@@ -103,17 +103,18 @@ def test_dev_default_is_detached_and_quiet(
     assert "--watch" not in result.output
 
 
-def test_dev_verbose_is_attached_watch(
+def test_dev_verbose_is_attached_up(
     runner: CliRunner, project_dir: Path, monkeypatch
 ):
-    """--verbose reverts to fully attached `up --watch` with all logs."""
+    """--verbose reverts to a fully attached `up` with all logs."""
     monkeypatch.delenv("ARCHES_SRC", raising=False)
     result = runner.invoke(
         main_module.app,
         ["-v", "dev", "--project-root", str(project_dir), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
-    assert "up --watch" in result.output
+    assert " up" in result.output
+    assert "up -d" not in result.output
     assert "--progress quiet" not in result.output
 
 
