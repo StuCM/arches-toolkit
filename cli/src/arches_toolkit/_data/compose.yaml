@@ -18,6 +18,9 @@ x-arches: &arches
   env_file:
     - .env
   environment:
+    # Third-party libs (rdflib, pyld) trip Python 3.12 SyntaxWarnings on every
+    # boot (no bytecode cache) — pure noise in service logs.
+    PYTHONWARNINGS: "ignore::SyntaxWarning"
     DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:?set in project .env}
     ARCHES_FRONTEND_CONFIGURATION_DIR: /var/arches/frontend_configuration
     ARCHES_UPLOADED_FILES_DIR: /var/arches/uploadedfiles
@@ -130,12 +133,17 @@ services:
     # reset path and is never invoked from here. See docs/compose-deep-dive.md.
     command:
       - sh
-      - -euxc
+      - -euc
       - |
+        echo "init: applying database migrations"
         python manage.py migrate --noinput
+        echo "init: creating cache table"
         python manage.py createcachetable
+        echo "init: collecting static files"
         python manage.py collectstatic --noinput
+        echo "init: setting up search indexes"
         python manage.py es setup_indexes
+        echo "init: seeding system settings (first boot only)"
         python <<'PY'
         import os, django
         django.setup()
