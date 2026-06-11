@@ -272,7 +272,7 @@ The System Settings graph has had the UUID `ff623370-fa12-11e6-b98b-6c4008b05c4c
 
 ### Webpack readiness gate
 
-`web` and `api` (dev overlay) declare `depends_on: webpack: service_healthy`. The webpack service's healthcheck greps `/app/webpack/webpack-stats.json` for `"status":"done"` — i.e. waits for webpack-bundle-tracker to confirm the first compile finished. Without this gate, a cold `arches-toolkit dev` lets Django serve requests before webpack has emitted the stats file, and template rendering fails with `Error reading … webpack-stats.json` from django-webpack-loader.
+`web` and `api` (dev overlay) declare `depends_on: webpack: service_healthy`. The webpack service's healthcheck greps `/app/webpack/webpack-stats.json` for `"status": "done"` (whitespace-tolerant — arches 8.1's bundle-tracker writes compact JSON, 8.2's pretty-prints) — i.e. waits for webpack-bundle-tracker to confirm the first compile finished. Without this gate, a cold `arches-toolkit dev` lets Django serve requests before webpack has emitted the stats file, and template rendering fails with `Error reading … webpack-stats.json` from django-webpack-loader.
 
 Cost: ~30-60s longer before the page is reachable on first boot. Steady-state HMR is unaffected — once webpack is healthy it stays healthy. The depends_on entry lives in the dev overlay only; prod ships pre-built bundles and doesn't run webpack as a service.
 

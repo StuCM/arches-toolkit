@@ -216,7 +216,9 @@ services:
     # webpack compile finishes, so users don't hit `webpack-stats.json missing`
     # 500s on a fresh `dev`.
     healthcheck:
-      test: ["CMD-SHELL", "grep -q '\"status\":\"done\"' /app/webpack/webpack-stats.json 2>/dev/null"]
+      # `"status": *"done"` — tolerate both compact (arches 8.1) and
+      # pretty-printed (8.2's newer webpack-bundle-tracker) stats JSON.
+      test: ["CMD-SHELL", "grep -q '\"status\": *\"done\"' /app/webpack/webpack-stats.json 2>/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 120
