@@ -88,19 +88,40 @@ GITIGNORE_LINES = [
 ]
 
 
+def _validate_image_repo(image: str) -> str:
+    """Reject a tag embedded in the image flag — the tag has its own flag.
+
+    A colon in the last path segment is a tag; a colon in an earlier segment
+    is a registry port (``localhost:5000/img``) and is fine. Without this,
+    image+tag joining produces a double-colon reference and docker fails
+    with an opaque "invalid reference format".
+    """
+    if ":" in image.rsplit("/", 1)[-1]:
+        repo, _, tag = image.rpartition(":")
+        raise typer.BadParameter(
+            f"--arches-toolkit-image must not include a tag — got {image!r}.\n"
+            f"Use: --arches-toolkit-image {repo} --arches-toolkit-tag {tag}"
+        )
+    return image
+
+
 def _run_arches_admin(parent: Path, name: str, package: str, image: str) -> None:
     uid_gid = f"{os.getuid()}:{os.getgid()}"
     # Django's startproject takes <name> (must be a Python identifier) and
     # an optional --directory (any path; must exist). Pass `package` as the
     # name and the kebab-or-snake `name` as the directory so kebab-case
     # project dirs are supported. Pre-create the dir — Django requires it.
+    # --entrypoint: never inherit the image's ENTRYPOINT — a foreign image
+    # (e.g. one with a relative entrypoint path) would otherwise hijack the
+    # invocation and fail before our command runs.
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{parent}:/work",
         "-u", "0",
         "-w", "/work",
+        "--entrypoint", "sh",
         image,
-        "sh", "-c",
+        "-c",
         f"printf '#!/bin/sh\\n' > /usr/local/bin/npm && chmod +x /usr/local/bin/npm && "
         f"mkdir -p /work/{name} && "
         f"arches-admin startproject {package} --directory {name} && "
@@ -113,13 +134,61 @@ def _run_arches_admin(parent: Path, name: str, package: str, image: str) -> None
         raise typer.Exit(r.returncode)
 
 
+def _probe_arches_version(image: str) -> str | None:
+    """Ask the base image which arches dist it ships. None on any failure."""
+    cmd = [
+        "docker", "run", "--rm", "--entrypoint", "python", image, "-c",
+        "from importlib.metadata import version; print(version('arches'))",
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return r.stdout.strip().splitlines()[-1].strip() or None
+
+
+def _pin_arches_dependency(pyproject_path: Path, version: str) -> str:
+    """Rewrite the template's arches bound to ``arches==<base version>``.
+
+    arches-admin's template writes the anticipated-final range (e.g.
+    ``arches>=8.2.0,<8.3.0``), which no pre-release can satisfy (PEP 440:
+    8.2.0a4 < 8.2.0) — unbuildable until the final release. The base image
+    is authoritative for the arches version anyway, so pin to what it
+    actually ships.
+    """
+    import tomlkit
+
+    if not pyproject_path.exists():
+        return "pyproject.toml: not found — skipped arches pin"
+    doc = tomlkit.parse(pyproject_path.read_text(encoding="utf-8"))
+    project = doc.get("project")
+    deps = project.get("dependencies") if project is not None else None
+    if deps is None:
+        return "pyproject.toml: no [project.dependencies] — skipped arches pin"
+    pinned = f"arches=={version}"
+    for i, spec in enumerate(deps):
+        s = str(spec).strip()
+        dep_name = s
+        for sep in ("[", "==", "!=", ">=", "<=", "~=", ">", "<", " ", ";", "@"):
+            j = dep_name.find(sep)
+            if j != -1:
+                dep_name = dep_name[:j]
+        if dep_name.strip().lower() != "arches":
+            continue
+        if s == pinned:
+            return f"pyproject.toml: arches already pinned to {version}"
+        deps[i] = pinned
+        pyproject_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+        return f"pyproject.toml: arches pinned to base image version ({s!r} → {pinned!r})"
+    return "pyproject.toml: no arches dependency found — skipped arches pin"
+
+
 def _patch_settings(settings_path: Path) -> str:
     text = settings_path.read_text(encoding="utf-8")
     if SETTINGS_MARKER in text:
         return "settings.py: env-overrides already present (skipped)"
     overrides = SETTINGS_OVERRIDES.format(marker=SETTINGS_MARKER)
     settings_path.write_text(text.rstrip() + "\n" + overrides, encoding="utf-8")
-    return f"settings.py: appended env-overrides block"
+    return "settings.py: appended env-overrides block"
 
 
 def _write_env(target: Path, **values: str) -> str:
@@ -182,6 +251,7 @@ def init(
     # converting hyphens to underscores.
     name = _validate_external_name(name, what="project name")
     package = _validate_name(package or _to_python_identifier(name), what="package")
+    _validate_image_repo(arches_toolkit_image)
 
     target = (target_dir or Path.cwd() / name).resolve()
     parent = target.parent
@@ -205,6 +275,14 @@ def init(
         )
 
     typer.echo("")
+    arches_version = _probe_arches_version(image_ref)
+    if arches_version:
+        typer.echo(_pin_arches_dependency(target / "pyproject.toml", arches_version))
+    else:
+        typer.echo(
+            "warning: could not read the arches version from the base image — "
+            "pyproject.toml arches bound left at the template default"
+        )
     typer.echo(_patch_settings(settings_path))
     typer.echo(
         _write_env(
