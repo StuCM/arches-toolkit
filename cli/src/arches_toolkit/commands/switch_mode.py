@@ -133,7 +133,10 @@ def switch_mode(
 
         typer.echo("")
         install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
-    except Exception:
+    except BaseException:
+        # BaseException, not Exception: Ctrl-C (KeyboardInterrupt) mid-switch
+        # must also restore the manifest, or a cancelled switch leaves
+        # apps.yaml claiming a mode the stack never converged to.
         _rollback(package, prior_entry, manifest_path, project_root)
         raise
 
@@ -171,7 +174,7 @@ def _rollback(
             "it was. Re-run switch-mode once the underlying problem is fixed.",
             err=True,
         )
-    except Exception:
+    except BaseException:
         typer.echo(
             "rollback re-sync also failed (offline?) — apps.yaml is restored; "
             "run `arches-toolkit sync-apps` then `arches-toolkit install` once "

@@ -312,6 +312,33 @@ def test_switch_rolls_back_manifest_on_install_failure(workspace, monkeypatch) -
     assert saved.mode == "develop"
 
 
+def test_switch_rolls_back_on_ctrl_c(workspace, monkeypatch) -> None:
+    """KeyboardInterrupt is a BaseException — a cancelled switch must restore
+    the manifest just like a failed one."""
+    from arches_toolkit.commands import switch_mode as sm
+
+    project, remote = workspace
+    manifest = _write_manifest(project, [
+        {"package": "arches-her", "source": "git", "repo": str(remote), "mode": "develop"},
+    ])
+    ensure_clone(AppEntry(package="arches-her", repo=str(remote)), project)
+
+    monkeypatch.setattr(sm.sync_apps_cmd, "sync_apps", lambda **kw: None)
+
+    def cancelled(**kw):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(sm.install_cmd, "install", cancelled)
+
+    with pytest.raises(KeyboardInterrupt):
+        switch_mode(
+            package="arches-her", target=Mode.release,
+            repo=None, force=False, no_sync=False, no_install=False,
+            manifest_path=manifest, project_root=project,
+        )
+    assert manifest_mod.load(manifest).find("arches-her").mode == "develop"
+
+
 def test_switch_rolls_back_repo_too_on_failure(workspace, monkeypatch) -> None:
     """Rollback restores the whole prior entry — a --repo persisted during a
     failed develop switch doesn't survive."""
