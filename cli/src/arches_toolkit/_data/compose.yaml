@@ -51,7 +51,11 @@ x-arches: &arches
 services:
 
   db:
-    image: postgis/postgis:14-3.4
+    # PG 16 covers every supported arches line: 8.1 needs 14+, 8.2's Django
+    # needs 15+. Override per-project via POSTGIS_TAG in .env. Changing major
+    # PG version on an existing project needs a fresh data volume
+    # (`arches-toolkit down -v` — destroys data) or a pg_upgrade/dump-restore.
+    image: postgis/postgis:${POSTGIS_TAG:-16-3.4}
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
       POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}

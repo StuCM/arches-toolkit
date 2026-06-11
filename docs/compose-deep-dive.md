@@ -57,7 +57,7 @@ Compose sequences this with `depends_on: init: condition: service_completed_succ
 
 | Service | Image | Purpose | Ports (dev) |
 |---|---|---|---|
-| `db` | `postgis/postgis:14-3.4` | PostgreSQL + PostGIS — Arches' primary store | 5432 (via `compose.extras.yaml` if exposed) |
+| `db` | `postgis/postgis:${POSTGIS_TAG:-16-3.4}` | PostgreSQL + PostGIS — Arches' primary store. PG 16 covers arches 8.1 (needs 14+) and 8.2 (Django needs 15+); pin differently via `POSTGIS_TAG` in `.env` | 5432 (via `compose.extras.yaml` if exposed) |
 | `elasticsearch` | `elasticsearch:8.4.0` | Search index — Arches indexes resources for fast lookup | 9200 (if exposed) |
 | `rabbitmq` | `rabbitmq:3-management` | Broker for Celery tasks (imports, exports, bulk ops) | 5672 / 15672 |
 | `cantaloupe` | `uclalibrary/cantaloupe:5.0.3-0` | IIIF image server — handles tile serving for uploaded images | 8182 |
