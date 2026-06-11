@@ -346,7 +346,7 @@ All Arches services run as UID 1000 (`user: "1000:1000"` in compose.yaml:16). If
 
 ## Kubernetes mapping
 
-The compose file is the contract. The k8s chart (in `chart/`) mirrors the same topology:
+The compose file is the contract. The k8s chart (in the separate `helm-arches` repo — charts deliberately do not live in the toolkit) mirrors the same topology:
 
 | compose | k8s |
 |---|---|

@@ -716,7 +716,16 @@ in the same repo, scaffolding for widgets/plugins/cards/components.
 
 ## Phase 2 (deferred — not started in Phase 1)
 
-- Helm chart improvements at `clusters/helm-arches`: volume provisioning for writable paths, security context defaults, `extraServices` map, chart bump to 0.0.19
+- Helm chart rework in the `helm-arches` repo (charts deliberately do NOT
+  live in the toolkit — the prototype `chart/` seeded here was removed
+  2026-06-11; the WIP toolkit-adaptation diff from 02359ff is exported to
+  `helm-arches/toolkit-adaptation-wip.patch` and remains in this repo's
+  history). Scope: rebuild against the new image contract using the compose
+  files as the spec — init Job (migrate/collectstatic/frontend-config),
+  `ARCHES_FRONTEND_CONFIGURATION_DIR` + volumes for the three writable
+  paths, non-root + `readOnlyRootFilesystem` security contexts,
+  `extraServices` map. Sequence after validating the `prod`/`nginx` image
+  targets against a real project.
 - Reusable GitHub workflows for project CI (`project-ci.yml`, `project-release.yml`)
 - Land `frontend_configuration` upstream and drop the patch once merged
 - Expand CLI: `init`, `upgrade`, full `make_arches` unification
