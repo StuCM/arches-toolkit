@@ -22,6 +22,11 @@ BASELINE = ("compose.yaml", "compose.dev.yaml")
 PROJECT_OVERLAYS = ("compose.extras.yaml",)
 ARCHES_SRC_OVERLAY = "compose.arches-src.yaml"
 
+# Services whose logs narrate progress. Infrastructure (db, elasticsearch,
+# rabbitmq, cantaloupe) is muted by default — its failures still surface via
+# depends_on / healthcheck errors. --verbose attaches everything.
+ATTACH_SERVICES = ("init", "web", "api", "worker", "webpack")
+
 
 def _package_data_path(name: str) -> Path:
     p = Path(str(resources.files(PACKAGE_DATA).joinpath(name)))
@@ -62,6 +67,9 @@ def _compose_argv(
     argv += ["up", "--watch"]
     if build:
         argv.append("--build")
+    if not _output.is_verbose():
+        for service in ATTACH_SERVICES:
+            argv += ["--attach", service]
     argv += list(extra)
     return argv
 
