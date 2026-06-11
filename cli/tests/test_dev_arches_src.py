@@ -87,32 +87,95 @@ def test_dev_no_arches_src_no_overlay(runner: CliRunner, project_dir: Path, monk
     assert "ARCHES_SRC=" not in result.output
 
 
-def test_dev_mutes_all_service_logs_by_default(
+def test_dev_default_is_detached_and_quiet(
     runner: CliRunner, project_dir: Path, monkeypatch
 ):
-    """Minimal default: no service logs stream — compose's progress tree is
-    the startup view; `logs -f` / --verbose bring streams back."""
+    """Minimal default: detached up with compose's progress display silenced —
+    the CLI's own readiness milestones are the narrative."""
     monkeypatch.delenv("ARCHES_SRC", raising=False)
     result = runner.invoke(
         main_module.app,
         ["dev", "--project-root", str(project_dir), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
-    assert "--no-attach webpack" in result.output
-    assert "--no-attach elasticsearch" in result.output
+    assert "up -d" in result.output
+    assert "--progress quiet" in result.output
+    assert "--watch" not in result.output
 
 
-def test_dev_verbose_attaches_everything(
+def test_dev_verbose_is_attached_watch(
     runner: CliRunner, project_dir: Path, monkeypatch
 ):
-    """--verbose drops the muting — full compose log stream."""
+    """--verbose reverts to fully attached `up --watch` with all logs."""
     monkeypatch.delenv("ARCHES_SRC", raising=False)
     result = runner.invoke(
         main_module.app,
         ["-v", "dev", "--project-root", str(project_dir), "--dry-run"],
     )
     assert result.exit_code == 0, result.output
-    assert "--no-attach" not in result.output
+    assert "up --watch" in result.output
+    assert "--progress quiet" not in result.output
+
+
+# --------------------------------------------------------------------------- #
+# readiness milestone evaluation (pure logic)
+# --------------------------------------------------------------------------- #
+
+from arches_toolkit.commands.dev import _stage_states  # noqa: E402
+
+
+def _svc(state="running", health="", exit_code=None):
+    item = {"State": state, "Health": health}
+    if exit_code is not None:
+        item["ExitCode"] = exit_code
+    return item
+
+
+def test_stage_states_all_ready():
+    services = {
+        "db": _svc(health="healthy"),
+        "elasticsearch": _svc(health="healthy"),
+        "rabbitmq": _svc(health="healthy"),
+        "init": _svc(state="exited", exit_code=0),
+        "webpack": _svc(health="healthy"),
+        "web": _svc(state="running"),
+    }
+    stages, failures = _stage_states(services)
+    assert all(stages.values())
+    assert failures == []
+
+
+def test_stage_states_cold_start_progression():
+    """Mid-cold-start: infra healthy, init still running, nothing downstream."""
+    services = {
+        "db": _svc(health="healthy"),
+        "elasticsearch": _svc(health="healthy"),
+        "rabbitmq": _svc(health="healthy"),
+        "init": _svc(state="running"),
+    }
+    stages, failures = _stage_states(services)
+    assert stages["infra"] is True
+    assert stages["init"] is False
+    assert stages["webpack"] is False
+    assert stages["web"] is False
+    assert failures == []
+
+
+def test_stage_states_init_failure_detected():
+    services = {
+        "db": _svc(health="healthy"),
+        "elasticsearch": _svc(health="healthy"),
+        "rabbitmq": _svc(health="healthy"),
+        "init": _svc(state="exited", exit_code=1),
+    }
+    _, failures = _stage_states(services)
+    assert "init" in failures
+
+
+def test_stage_states_unhealthy_infra_detected():
+    services = {"db": _svc(health="unhealthy")}
+    _, failures = _stage_states(services)
+    assert "db" in failures
 
 
 def test_dev_shell_env_adds_overlay(
