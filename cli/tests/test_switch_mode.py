@@ -284,6 +284,62 @@ def test_switch_does_not_touch_clone_branch(workspace) -> None:
     assert head.stdout.strip() == "user-feature"
 
 
+def test_switch_rolls_back_manifest_on_install_failure(workspace, monkeypatch) -> None:
+    """A failed install (network down, broken dep) must not leave apps.yaml
+    claiming a mode the stack was never converged to."""
+    from arches_toolkit.commands import switch_mode as sm
+
+    project, remote = workspace
+    manifest = _write_manifest(project, [
+        {"package": "arches-her", "source": "git", "repo": str(remote), "mode": "develop"},
+    ])
+    ensure_clone(AppEntry(package="arches-her", repo=str(remote)), project)
+
+    monkeypatch.setattr(sm.sync_apps_cmd, "sync_apps", lambda **kw: None)
+
+    def boom(**kw):
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(sm.install_cmd, "install", boom)
+
+    with pytest.raises(typer.Exit):
+        switch_mode(
+            package="arches-her", target=Mode.release,
+            repo=None, force=False, no_sync=False, no_install=False,
+            manifest_path=manifest, project_root=project,
+        )
+    saved = manifest_mod.load(manifest).find("arches-her")
+    assert saved.mode == "develop"
+
+
+def test_switch_rolls_back_repo_too_on_failure(workspace, monkeypatch) -> None:
+    """Rollback restores the whole prior entry — a --repo persisted during a
+    failed develop switch doesn't survive."""
+    from arches_toolkit.commands import switch_mode as sm
+
+    project, remote = workspace
+    manifest = _write_manifest(project, [
+        {"package": "arches-her", "source": "pypi", "version": "~=2.0", "mode": "release"},
+    ])
+
+    monkeypatch.setattr(sm.sync_apps_cmd, "sync_apps", lambda **kw: None)
+
+    def boom(**kw):
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(sm.install_cmd, "install", boom)
+
+    with pytest.raises(typer.Exit):
+        switch_mode(
+            package="arches-her", target=Mode.develop,
+            repo=str(remote), force=False, no_sync=False, no_install=False,
+            manifest_path=manifest, project_root=project,
+        )
+    saved = manifest_mod.load(manifest).find("arches-her")
+    assert saved.mode == "release"
+    assert saved.repo is None
+
+
 def test_switch_unknown_package_errors(workspace) -> None:
     project, _ = workspace
     manifest = _write_manifest(project, [])

@@ -67,6 +67,10 @@ def switch_mode(
         raise typer.BadParameter(
             f"{package!r} not found in {manifest_path} — run `arches-toolkit add-app` first"
         )
+    # Snapshot for rollback: if sync/install fails after the manifest flip
+    # (network down, broken dep, …), restore the previous entry so apps.yaml
+    # never claims a state the stack was not converged to.
+    prior_entry = entry.to_dict()
 
     if target == Mode.develop:
         if repo:
@@ -115,16 +119,62 @@ def switch_mode(
     if no_sync:
         return
 
-    typer.echo("")
-    sync_apps_cmd.sync_apps(
-        manifest_path=manifest_path,
-        project_root=project_root,
-        no_lock=False,
-        no_installed_apps=False,
+    try:
+        typer.echo("")
+        sync_apps_cmd.sync_apps(
+            manifest_path=manifest_path,
+            project_root=project_root,
+            no_lock=False,
+            no_installed_apps=False,
+        )
+
+        if no_install:
+            return
+
+        typer.echo("")
+        install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
+    except Exception:
+        _rollback(package, prior_entry, manifest_path, project_root)
+        raise
+
+
+def _rollback(
+    package: str,
+    prior_entry: dict,
+    manifest_path: Path,
+    project_root: Path,
+) -> None:
+    """Restore the pre-switch apps.yaml entry and re-sync the project files.
+
+    Best-effort: if the re-sync also fails (e.g. the same network outage that
+    broke the forward switch), the manifest is still restored and the user is
+    told exactly what to run once the underlying issue is fixed.
+    """
+    prior_mode = prior_entry.get("mode", "release")
+    typer.echo(
+        f"\nswitch failed — rolling {package} back to mode: {prior_mode} "
+        f"in {manifest_path}",
+        err=True,
     )
-
-    if no_install:
-        return
-
-    typer.echo("")
-    install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
+    manifest = manifest_mod.load(manifest_path)
+    manifest.upsert(manifest_mod.AppEntry.from_dict(prior_entry))
+    manifest_mod.save(manifest, manifest_path)
+    try:
+        sync_apps_cmd.sync_apps(
+            manifest_path=manifest_path,
+            project_root=project_root,
+            no_lock=False,
+            no_installed_apps=False,
+        )
+        typer.echo(
+            "rolled back: apps.yaml + pyproject restored; the venv was left as "
+            "it was. Re-run switch-mode once the underlying problem is fixed.",
+            err=True,
+        )
+    except Exception:
+        typer.echo(
+            "rollback re-sync also failed (offline?) — apps.yaml is restored; "
+            "run `arches-toolkit sync-apps` then `arches-toolkit install` once "
+            "connectivity is back.",
+            err=True,
+        )
