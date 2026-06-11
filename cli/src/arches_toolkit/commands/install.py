@@ -92,6 +92,21 @@ def _run_install(project_root: Path, script: str, *, web_up: bool) -> None:
         raise typer.Exit(completed.returncode)
 
 
+def _run_migrate(project_root: Path) -> None:
+    """Apply any pending Django migrations — a fast no-op when there are none.
+
+    Newly installed apps ship migrations that nothing else applies on a
+    running stack (init only migrates on cold start), so install owns it.
+    """
+    argv = cw._compose_base_argv(project_root) + [
+        "exec", "-T", "web", "python", "manage.py", "migrate", "--noinput",
+    ]
+    typer.echo(f"+ {' '.join(argv[-6:])}")
+    completed = subprocess.run(argv, env=cw._compose_env())
+    if completed.returncode != 0:
+        raise typer.Exit(completed.returncode)
+
+
 def _restart_services(project_root: Path) -> None:
     argv = cw._compose_base_argv(project_root) + [
         "restart", "web", "worker", "api",
@@ -110,6 +125,10 @@ def install(
         False, "--no-restart",
         help="Skip the post-install `compose restart web worker api`",
     ),
+    no_migrate: bool = typer.Option(
+        False, "--no-migrate",
+        help="Skip applying pending Django migrations after the install",
+    ),
 ) -> None:
     """Install the project and all apps from apps.yaml into the venv volume."""
     _docker_or_die()
@@ -124,10 +143,13 @@ def install(
     web_up = _web_is_running(project_root)
     _run_install(project_root, script, web_up=web_up)
 
+    if web_up and not no_migrate:
+        _run_migrate(project_root)
     if web_up and not no_restart:
         _restart_services(project_root)
     elif not web_up:
         typer.echo(
             "\nVenv populated; web wasn't running, so nothing to restart. "
-            "Bring services up with `arches-toolkit dev`."
+            "Bring services up with `arches-toolkit dev` — init applies any "
+            "pending migrations on boot."
         )

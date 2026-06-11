@@ -98,7 +98,11 @@ services:
         print("init: regenerated frontend_configuration")
         '
         if python -c "$$PROBE" 2>/dev/null; then
-          echo "init: db already initialized, skipping migrate/createcachetable"
+          # Warm start: apply pending migrations (fast no-op when none) so
+          # apps added while the stack was down don't boot with a stale
+          # schema; createcachetable stays cold-start-only.
+          echo "init: db already initialized — applying any pending migrations"
+          python manage.py migrate --noinput
           # Warm-start regen: cold-start migrate triggers app.ready() →
           # generate_frontend_configuration(); we replicate it here so webpack
           # picks up app paths after release↔develop install changes.

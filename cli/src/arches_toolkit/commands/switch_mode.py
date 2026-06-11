@@ -127,4 +127,4 @@ def switch_mode(
         return
 
     typer.echo("")
-    install_cmd.install(project_root=project_root, no_restart=False)
+    install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
