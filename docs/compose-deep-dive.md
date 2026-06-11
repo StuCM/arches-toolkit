@@ -299,7 +299,7 @@ The single most important dev feature. Replaces the image's baked-in `/app` (the
 
 Watch rules in `develop.watch` (lines 30-44) mirror the bind mount for Windows/Mac hosts where bind-mount performance is poor — compose's watch feature copies files via a side channel instead. On Linux the bind mount alone is enough, but the watch rules are harmless.
 
-`pyproject.toml` and `uv.lock` are registered as `rebuild` triggers — changing them invalidates the venv, so compose rebuilds the image rather than syncing.
+There are deliberately no `rebuild` triggers for `pyproject.toml`/`uv.lock`: the named `venv` volume shadows the image's `/venv` at runtime, so a watch-triggered image rebuild changes nothing the running stack can see — and it needlessly recreates every dev service (including webpack, losing its warm compile). Dependency changes flow through `arches-toolkit install` (writes the venv volume + targeted restart); image rebuilds are explicit via `arches-toolkit dev --build`.
 
 ### debugpy on :5678
 

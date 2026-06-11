@@ -109,11 +109,13 @@ to trace, then attach the debugger to catch the next request.
 | Path | Action |
 |---|---|
 | `**/*.py`, `**/*.html`, `**/*.css`, `**/*.js`, `**/*.vue` | `sync` — copied in-place; Django autoreload / webpack HMR picks them up |
-| `pyproject.toml`, `uv.lock` | `rebuild` — these change the image's base layers |
 
-`sync` updates happen in well under a second. If you've changed
-dependencies, running `docker compose exec web uv sync` is faster and
-less disruptive than letting `rebuild` fire.
+`sync` updates happen in well under a second. Dependency changes
+(`pyproject.toml`/`uv.lock`) deliberately do **not** trigger a rebuild —
+the venv named volume shadows the image's `/venv`, so run
+`arches-toolkit install` instead (seconds, targeted restart); rebuild
+explicitly with `arches-toolkit dev --build` only for Dockerfile or base
+image changes.
 
 ## Project-specific services
 

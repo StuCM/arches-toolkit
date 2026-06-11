@@ -150,7 +150,7 @@ Classify into one of four buckets:
 ### 4.2 — `docker/project/compose.dev.yaml` (dev overlay)
 - [x] Bind mounts: project source, arches source (optional for core dev via `compose.arches-src.yaml`), arches_apps
 - [x] Named volume `venv:/venv`
-- [x] `develop.watch` rules — `sync` for code paths, `rebuild` for `pyproject.toml`
+- [~] `develop.watch` rules — `sync` for code paths; rebuild-on-pyproject was removed 2026-06-11 (venv volume shadows the image's /venv, so the rebuild changed nothing and needlessly recreated all dev services incl. webpack — `install` is the dep-change mechanism)
 - [x] Exposed ports: `:8000` (web), `:9000` (webpack devserver), `:5678` (debugpy)
 - [x] Dev command: `python manage.py runserver 0.0.0.0:8000` instead of gunicorn
 
