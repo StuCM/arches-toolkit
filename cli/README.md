@@ -10,7 +10,7 @@ Python package providing the `arches-toolkit` command. End-user docs live in the
 | `arches-toolkit migrate` | Convert an existing project to arches-toolkit shape (`--dual-mode` to keep legacy CI) |
 | `arches-toolkit setup-db` | **Destructive, one-time**: drop+rebuild DB, ES indexes, system settings |
 | `arches-toolkit add-app <pkg>` | Add an Arches application to `apps.yaml` |
-| `arches-toolkit sync-apps` | Apply `apps.yaml` changes to `pyproject.toml` + `compose.apps.yaml` |
+| `arches-toolkit sync-apps` | Apply `apps.yaml` changes to `pyproject.toml` + INSTALLED_APPS |
 | `arches-toolkit create <kind> <name>` | Scaffold widget / plugin / component / app / etc. — see [../docs/create.md](../docs/create.md) |
 | `arches-toolkit dev [--build] [--dry-run]` | `docker compose up --watch` with auto-discovered overlays |
 | `arches-toolkit build` | `docker compose build` (no start) |

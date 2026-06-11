@@ -137,7 +137,7 @@ apps:
 
 **Release mode**: `arches-toolkit sync-apps` appends the package to `pyproject.toml` dependencies. `uv sync` installs. Reproducible, lockfile-pinned, no clone.
 
-**Develop mode**: generates a `compose.apps.yaml` with a bind mount + editable-install rule for that app. Dev only; never in CI prod images.
+**Develop mode**: the app renders in `pyproject.toml` as `pkg @ git+repo@ref` (so clone-less teammates install the pushed branch tip); the permanent `..:/workspace` mount exposes the sibling clone and `arches-toolkit install` overlays an editable install from it. Dev only; never in CI prod images.
 
 **Registration**: projects continue to extend `ARCHES_INHERITED_APPS` in their own `settings.py` — the current pattern is already clean. The CLI does not generate a `_apps.py` file. `install_app.py`'s regex edits go away; adding an app is `arches-toolkit add-app <name>` which updates `apps.yaml` and prints a one-liner to add to `INSTALLED_APPS` if not already inherited.
 
@@ -149,7 +149,7 @@ apps:
 |---|---|
 | `init <name>` | Scaffolds a new project repo (runs `arches-admin startproject` in the toolkit container, overlays toolkit files) |
 | `add-app <package>` | Adds to `apps.yaml`, suggests `INSTALLED_APPS` line |
-| `sync-apps` | Rewrites `pyproject.toml` deps and `compose.apps.yaml` from `apps.yaml` |
+| `sync-apps` | Rewrites `pyproject.toml` deps + the managed INSTALLED_APPS block from `apps.yaml` |
 | `dev` | `docker compose -f compose.yaml -f compose.dev.yaml up --watch` with auto-discovery of `compose.extras.yaml` |
 | `patch list` | Lists all patches with upstream status |
 | `patch renew <name>` | Bumps `Last-reviewed:` in patch header |

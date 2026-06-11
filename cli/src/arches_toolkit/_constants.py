@@ -3,7 +3,7 @@
 CLI commands (init, migrate, …) import from here. The shipped Dockerfile
 and compose files duplicate these values as ARG/`${VAR:-…}` fallbacks for
 direct `docker build` / `docker compose` invocations without an `.env`;
-keep them in sync — there is a CI check (TODO) that compares them.
+keep them in sync by hand when bumping defaults.
 """
 
 # Base image users `FROM` and that the CLI runs `arches-admin` inside.

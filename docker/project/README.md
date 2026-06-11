@@ -22,7 +22,6 @@ A project repository contains only:
 - `.env` — local secrets and project-specific settings (`DJANGO_SETTINGS_MODULE`, `WSGI_APP`, etc.)
 - project source code (`<project>/settings.py`, `urls.py`, custom apps, templates, webpack config)
 - optional `compose.extras.yaml` for project-specific sidecars
-- optional `compose.apps.yaml` — *generated* by `arches-toolkit sync-apps`, not hand-edited
 
 The `compose.yaml` and `compose.dev.yaml` shipped here reference the Dockerfile via
 `build.context: .` with a `target:` selector (`prod` for the baseline, `dev` for the overlay).
@@ -33,7 +32,7 @@ consumed in-place via the CLI's `arches-toolkit dev` wrapper, which invokes:
 docker compose \
   -f <toolkit>/docker/project/compose.yaml \
   -f <toolkit>/docker/project/compose.dev.yaml \
-  [-f ./compose.apps.yaml] [-f ./compose.extras.yaml] \
+  [-f ./compose.extras.yaml] \
   up --watch
 ```
 

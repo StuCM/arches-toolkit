@@ -11,9 +11,11 @@ recreation:
   (``..:/workspace`` in compose.dev.yaml), one ``uv pip install -e
   /workspace/<dirname>`` per app.
 
-When the web service is up, installs go via ``compose exec`` and finish with
-``compose restart web worker api`` — never recreates a container, so volume
-config changes can't desync. When web is down or crashlooping, falls back to
+When the web service is up, installs go via ``compose exec``, then pending
+migrations are applied, frontend_configuration is regenerated, and the run
+finishes with ``compose restart web worker api webpack`` — never recreates a
+container, so volume config changes can't desync. When web is down or
+crashlooping, falls back to
 ``compose run --rm --entrypoint sh web``; the named ``venv`` volume persists
 across container lifetimes, so a subsequent ``arches-toolkit dev`` boots into
 a populated venv.
@@ -158,7 +160,7 @@ def install(
     ),
     no_restart: bool = typer.Option(
         False, "--no-restart",
-        help="Skip the post-install `compose restart web worker api`",
+        help="Skip the post-install frontend regen + `compose restart web worker api webpack`",
     ),
     no_migrate: bool = typer.Option(
         False, "--no-migrate",

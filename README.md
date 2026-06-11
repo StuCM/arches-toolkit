@@ -84,7 +84,7 @@ apps:
 
 ```bash
 arches-toolkit add-app arches-her --source pypi --version "~=2.0"
-arches-toolkit sync-apps             # writes pyproject.toml deps + compose.apps.yaml
+arches-toolkit sync-apps             # writes pyproject.toml deps + INSTALLED_APPS block
 ```
 
 ## Scaffolding artifacts
@@ -194,7 +194,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit dev` | `docker compose up --watch` against the toolkit baseline + project overlays |
 | `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
-| `arches-toolkit sync-apps` | Project `pyproject.toml` + `compose.apps.yaml` from `apps.yaml` |
+| `arches-toolkit sync-apps` | Project `pyproject.toml` + INSTALLED_APPS block from `apps.yaml` |
 | `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |
 | `arches-toolkit ps` | `docker compose ps` wrapper |
 | `arches-toolkit exec <service> <cmd…>` | `docker compose exec` wrapper |
@@ -223,7 +223,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 The CLI is a thin wrapper around `docker compose`. Every subcommand:
 
 1. Locates baseline `compose.yaml` / `compose.dev.yaml` / `Dockerfile` / `init.sql` via `importlib.resources` (they ship as package data inside the installed CLI).
-2. Auto-discovers `compose.apps.yaml` and `compose.extras.yaml` in the project root and layers them on top.
+2. Auto-discovers `compose.extras.yaml` in the project root and layers it on top.
 3. Sets the `ARCHES_TOOLKIT_DOCKERFILE` and `ARCHES_TOOLKIT_INIT_SQL` env vars so compose can interpolate the absolute paths the YAML references.
 4. Passes `--project-directory <cwd>` so relative references inside the compose files (e.g. `context: .`) resolve to the project, not the site-packages path.
 5. Exec/inherit stdio so output streams live.
