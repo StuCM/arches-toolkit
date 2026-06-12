@@ -132,11 +132,32 @@ git -C ../arches-file-uploader remote add origin git@github.com:your-org/arches-
 git -C ../arches-file-uploader push -u origin main
 
 # 3. Register — add-app sees the sibling dir already exists (your scaffold
-#    IS the working tree), then chains sync-apps + install:
+#    IS the working tree), then chains sync-apps + install. The scaffold's
+#    root package.json is auto-detected → `npm: true` in apps.yaml, so the
+#    project's package.json gets a managed git entry and npm installs the
+#    app's frontend deps transitively.
 arches-toolkit add-app arches-file-uploader --source git --repo git@github.com:your-org/arches-file-uploader.git --mode develop
 
 # 4. Edit the app's code freely — the /workspace overlay makes changes live.
+#    Frontend deps: declare them in the APP's package.json; `arches-toolkit
+#    install` overlays your clone's declarations --no-save (usable before
+#    push); pushing makes them real for teammates/CI via the git ref.
 ```
+
+### Frontend (npm) dependencies without the toolkit
+
+Nothing app-side is toolkit-specific: the app declares frontend deps in a
+standard root `package.json` whose `name` matches the dist name. A
+plain-Arches consumer adds the same single line the toolkit manages —
+
+```json
+"arches-file-uploader": "git+https://github.com/your-org/arches-file-uploader.git#v0.1.0"
+```
+
+— and npm installs the app's declared deps transitively (the same
+mechanism every project already uses for the `arches` core entry). One app
+artifact serves both kinds of consumer. Keep the app's package.json free
+of lifecycle scripts: npm runs `prepare` when installing git deps.
 
 ### Why no local-only mode
 

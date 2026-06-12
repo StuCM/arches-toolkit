@@ -194,7 +194,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit dev` | Start the dev stack detached with readiness milestones; edits live-reload via bind mounts |
 | `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
-| `arches-toolkit sync-apps` | Project `pyproject.toml` + INSTALLED_APPS block from `apps.yaml` |
+| `arches-toolkit sync-apps` | Project `pyproject.toml`, INSTALLED_APPS block + managed npm entries (`npm: true` apps) from `apps.yaml` |
 | `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |
 | `arches-toolkit ps` | `docker compose ps` wrapper |
 | `arches-toolkit exec <service> <cmd…>` | `docker compose exec` wrapper |

@@ -435,9 +435,22 @@ sync/install/list, template changes); not worth it today.
 
 ---
 
-## Design proposal: app-owned npm dependencies
+## Design: app-owned npm dependencies
 
-**Status:** designed 2026-06-10, not implemented. Next sizeable feature.
+**Status:** implemented 2026-06-12 (028debb). Schema: `npm: true` on the
+apps.yaml entry (must live in the manifest — the committed package.json
+has to derive from apps.yaml alone, identically on every machine, and npm
+hard-fails on git deps whose repo lacks package.json); add-app auto-sets
+it when the develop clone has a root package.json, `--npm/--no-npm`
+overrides. sync-apps maintains the managed git entries
+(`archesToolkit.managedDependencies` tracking key); install runs the
+committed npm reconcile + `--no-save` clone overlay in the webpack
+container and freshens the install stamp so the startup hook can't prune
+the overlay; `create app` scaffolds a minimal script-light root
+package.json. pypi release entries derive `v<version>` tags from exact
+pins only — range specifiers are skipped with a warning (set `ref:` or
+pin). Remaining from the design, not yet done: app-CI declared-vs-imported
+dep check; surfacing npm overlay state in `list`.
 
 **Problem.** Arches has one webpack build per project; app frontend
 sources are compiled into it (via the frontend_configuration paths), but
