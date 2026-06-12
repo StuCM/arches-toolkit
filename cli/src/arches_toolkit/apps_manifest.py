@@ -16,7 +16,7 @@ import yaml
 
 LOG = logging.getLogger(__name__)
 
-KNOWN_ENTRY_KEYS = {"package", "source", "version", "repo", "ref", "mode", "path", "extras"}
+KNOWN_ENTRY_KEYS = {"package", "source", "version", "repo", "ref", "mode", "path", "npm", "extras"}
 VALID_SOURCES = {"pypi", "git"}
 VALID_MODES = {"release", "develop"}
 
@@ -37,6 +37,12 @@ class AppEntry:
     # Use this when your clone is checked out under a non-default name —
     # e.g. a branch-named dir like `2.0.x/` instead of `arches-her/`.
     path: str | None = None
+    # npm: the app declares frontend deps in a root package.json, so the
+    # project's package.json gets a managed git entry for it (npm resolves
+    # the app's deps transitively). Must live in the manifest — the committed
+    # package.json has to derive from apps.yaml alone, identically on every
+    # machine, and npm hard-fails on git deps whose repo lacks package.json.
+    npm: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,6 +56,8 @@ class AppEntry:
         out["mode"] = self.mode
         if self.path is not None:
             out["path"] = self.path
+        if self.npm:
+            out["npm"] = True
         # Re-attach unknown keys at the end, sorted for determinism.
         for k in sorted(self.extras):
             out[k] = self.extras[k]
@@ -76,6 +84,7 @@ class AppEntry:
             ref=data.get("ref"),
             mode=mode,
             path=data.get("path"),
+            npm=bool(data.get("npm", False)),
             extras=extras,
         )
 

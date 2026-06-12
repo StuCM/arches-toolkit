@@ -7,7 +7,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from arches_toolkit.apps_manifest import AppEntry
-from arches_toolkit.commands.install import _build_install_script
+import json
+
+from arches_toolkit.commands.install import (
+    _build_install_script,
+    _build_npm_script,
+    _npm_overlay_specs,
+)
 
 
 def _project(tmp_path: Path) -> Path:
@@ -75,3 +81,61 @@ def test_install_script_uses_path_override_for_clone_dir(tmp_path: Path) -> None
     )
     assert "-e /workspace/2.0.x" in script
     assert "-e /workspace/arches-her" not in script
+
+
+# --------------------------------------------------------------------------- #
+# npm overlay (local clone deps, --no-save)
+# --------------------------------------------------------------------------- #
+
+
+def test_npm_overlay_reads_clone_dependencies(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    clone = tmp_path / "arches-foo"
+    clone.mkdir()
+    (clone / "package.json").write_text(
+        json.dumps({"name": "arches-foo", "dependencies": {"leaflet": "^1.9.0"}}),
+        encoding="utf-8",
+    )
+    specs = _npm_overlay_specs(
+        [AppEntry(package="arches-foo", source="git",
+                  repo="https://github.com/x/arches-foo.git",
+                  mode="develop", npm=True)],
+        project,
+    )
+    assert specs == ["leaflet@^1.9.0"]
+
+
+def test_npm_overlay_skips_non_npm_and_cloneless(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    clone = tmp_path / "arches-foo"
+    clone.mkdir()
+    (clone / "package.json").write_text('{"dependencies": {"x": "1"}}', encoding="utf-8")
+    entries = [
+        AppEntry(package="arches-foo", source="git",
+                 repo="https://github.com/x/arches-foo.git",
+                 mode="develop", npm=False),
+        AppEntry(package="arches-bar", source="git",
+                 repo="https://github.com/x/arches-bar.git",
+                 mode="develop", npm=True),
+    ]
+    assert _npm_overlay_specs(entries, project) == []
+
+
+def test_npm_script_reconciles_then_overlays_then_stamps() -> None:
+    script = _build_npm_script(["leaflet@^1.9.0"])
+    lines = script.splitlines()
+    assert lines[0] == "set -eu"
+    committed = next(i for i, line in enumerate(lines) if line == "npm install --no-audit --no-fund")
+    overlay = next(i for i, line in enumerate(lines) if "--no-save" in line)
+    stamp = next(i for i, line in enumerate(lines) if "install-stamp" in line)
+    # order matters: committed layer, then overlay, then stamp freshened so
+    # the webpack startup hook doesn't re-run a plain install that could
+    # prune the overlay
+    assert committed < overlay < stamp
+    assert "leaflet@^1.9.0" in lines[overlay]
+
+
+def test_npm_script_without_overlay_still_stamps() -> None:
+    script = _build_npm_script([])
+    assert "--no-save" not in script
+    assert "install-stamp" in script

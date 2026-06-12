@@ -132,3 +132,18 @@ def test_unknown_keys_preserved(tmp_path: Path) -> None:
     reloaded = yaml.safe_load(out.read_text())
     assert reloaded["apps"][0]["wibble"] == "kept"
     assert reloaded["top_level_extra"] == {"foo": 1}
+
+
+def test_npm_field_round_trips(tmp_path):
+    from pathlib import Path as _P
+    from arches_toolkit import apps_manifest as m
+    p = _P(tmp_path) / "apps.yaml"
+    entry = m.AppEntry(package="arches-foo", source="git",
+                       repo="https://github.com/x/arches-foo.git",
+                       mode="develop", npm=True)
+    m.save(m.AppsManifest(apps=[entry]), p)
+    loaded = m.load(p).find("arches-foo")
+    assert loaded.npm is True
+    # omitted when false — no schema noise for non-npm apps
+    entry2 = m.AppEntry(package="arches-bar", source="pypi")
+    assert "npm" not in entry2.to_dict()

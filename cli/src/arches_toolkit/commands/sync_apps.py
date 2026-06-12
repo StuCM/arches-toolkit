@@ -21,6 +21,7 @@ Reads ``apps.yaml`` and:
 from __future__ import annotations
 
 import ast
+import json
 import re
 import shutil
 import subprocess
@@ -85,6 +86,122 @@ def _dep_spec(entry: AppEntry) -> str:
         # Bare version → treat as exact pin via ==.
         return f"{entry.package}=={spec}"
     return entry.package
+
+
+# --------------------------------------------------------------------------- #
+# npm dependency management (apps with `npm: true` in apps.yaml)
+# --------------------------------------------------------------------------- #
+
+PACKAGE_JSON_FILENAME = "package.json"
+NPM_MANAGED_KEY = "archesToolkit"  # npm ignores unknown root keys
+
+
+def _npm_git_url(repo: str) -> str:
+    """Normalise a git repo reference into an npm-compatible git URL."""
+    if repo.startswith("git+"):
+        return repo
+    if repo.startswith(("http://", "https://", "ssh://", "file://")):
+        return f"git+{repo}"
+    if repo.startswith("git@") and ":" in repo:
+        host, _, path = repo[len("git@"):].partition(":")
+        return f"git+ssh://git@{host}/{path}"
+    return f"git+{repo}"
+
+
+def _npm_ref(entry: AppEntry) -> str | None:
+    """Git ref for the npm entry — same derivation as the Python side.
+
+    develop → `ref` (default main); release git → `ref` if set (else repo
+    default branch); release pypi → `v<version>` for an exact pin, by the
+    tag convention. Returns None when no ref is derivable AND one is needed
+    (pypi with a range specifier — there is no tag to point npm at).
+    """
+    if entry.mode == "develop":
+        return entry.ref or DEFAULT_DEVELOP_REF
+    if entry.ref:
+        return entry.ref
+    if entry.source == "pypi" and entry.version:
+        v = entry.version.strip()
+        if v.startswith("=="):
+            v = v[2:].strip()
+        if v and v[0] not in "<>~!^=":
+            return f"v{v}"
+        return None
+    return ""  # git release with no ref: repo default branch, like pip
+
+
+def _npm_spec(entry: AppEntry) -> str | None:
+    """npm dependency value for an `npm: true` entry, or None with no warning
+    possible (caller warns)."""
+    if not entry.repo:
+        return None
+    ref = _npm_ref(entry)
+    if ref is None:
+        return None
+    url = _npm_git_url(entry.repo)
+    return f"{url}#{ref}" if ref else url
+
+
+def _sync_package_json(apps: list[AppEntry], project_root: Path) -> str:
+    """Maintain managed npm git entries in the project's package.json.
+
+    Apps marked `npm: true` declare frontend deps in their own root
+    package.json; referencing the app as an npm git dep makes npm resolve
+    those transitively (the same mechanism projects already use for arches
+    core). Managed names are tracked under the npm-ignored "archesToolkit"
+    root key, mirroring [tool.arches-toolkit] managed_apps in pyproject.
+    Works identically without the toolkit: a plain-Arches consumer writes
+    the same one-line git dep by hand.
+    """
+    npm_apps = [a for a in apps if a.npm]
+    pkg_path = project_root / PACKAGE_JSON_FILENAME
+    if not pkg_path.exists():
+        if npm_apps:
+            return "package.json: not found — skipped npm entries for " + ", ".join(
+                a.package for a in npm_apps
+            )
+        return "package.json: no npm-managed apps"
+
+    original_text = pkg_path.read_text(encoding="utf-8")
+    try:
+        doc = json.loads(original_text)
+    except ValueError as exc:
+        raise typer.BadParameter(f"{pkg_path}: invalid JSON — {exc}") from None
+
+    desired: dict[str, str] = {}
+    skipped: list[str] = []
+    for entry in npm_apps:
+        spec = _npm_spec(entry)
+        if spec is None:
+            skipped.append(entry.package)
+        else:
+            desired[entry.package] = spec
+
+    deps = doc.setdefault("dependencies", {})
+    previously_managed = doc.get(NPM_MANAGED_KEY, {}).get("managedDependencies", [])
+    for name in previously_managed:
+        if name not in desired:
+            deps.pop(name, None)
+    deps.update(desired)
+    if desired:
+        doc[NPM_MANAGED_KEY] = {"managedDependencies": sorted(desired)}
+    elif NPM_MANAGED_KEY in doc:
+        del doc[NPM_MANAGED_KEY]
+
+    new_text = json.dumps(doc, indent=2) + "\n"
+    status = []
+    if skipped:
+        status.append(
+            "package.json: skipped "
+            + ", ".join(skipped)
+            + " (no repo, or a pypi range specifier — pin an exact version or set ref)"
+        )
+    if new_text == original_text:
+        status.append("package.json: no changes")
+    else:
+        pkg_path.write_text(new_text, encoding="utf-8")
+        status.append(f"package.json: {len(desired)} managed npm entr{'y' if len(desired) == 1 else 'ies'}")
+    return "\n".join(status)
 
 
 def _ensure_table(parent, key: str) -> Table:
@@ -466,6 +583,7 @@ def sync_apps(
     # locked sources. Develop apps render as `pkg @ git+repo@ref`; install
     # then overrides with editable from /workspace where a clone exists.
     typer.echo(_sync_pyproject(release + develop, project_root))
+    typer.echo(_sync_package_json(release + develop, project_root))
     legacy_status = _remove_legacy_compose_apps(project_root)
     if legacy_status:
         typer.echo(legacy_status)

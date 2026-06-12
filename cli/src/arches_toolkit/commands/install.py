@@ -23,6 +23,8 @@ a populated venv.
 
 from __future__ import annotations
 
+import json
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -91,6 +93,67 @@ def _run_install(project_root: Path, script: str, *, web_up: bool) -> None:
     else:
         argv = base + ["run", "--rm", "--entrypoint", "sh", "web", "-euc", script]
     _output.stage("Installing project + apps into the venv")
+    _output.cmd(argv)
+    completed = subprocess.run(argv, env=cw._compose_env())
+    if completed.returncode != 0:
+        raise typer.Exit(completed.returncode)
+
+
+def _npm_overlay_specs(
+    develop_apps: list[manifest_mod.AppEntry],
+    project_root: Path,
+) -> list[str]:
+    """`name@spec` args for the npm local overlay.
+
+    The npm analogue of the editable /workspace install: for each npm-managed
+    develop app with a sibling clone, install the *clone's* declared deps into
+    the project node_modules `--no-save` — so a dep added locally is usable
+    before it's pushed (push to share, not to use). Committed files stay
+    untouched; a volume rebuild reverts to the committed state until install
+    re-runs.
+    """
+    workspace_root = project_root.resolve().parent
+    specs: list[str] = []
+    for entry in develop_apps:
+        if not entry.npm:
+            continue
+        pkg_json = workspace_root / develop_repo_dirname(entry) / "package.json"
+        if not pkg_json.exists():
+            continue
+        try:
+            deps = json.loads(pkg_json.read_text(encoding="utf-8")).get("dependencies", {})
+        except ValueError:
+            typer.echo(f"warning: {pkg_json}: invalid JSON — skipping npm overlay", err=True)
+            continue
+        specs += [f"{name}@{spec}" for name, spec in deps.items()]
+    return specs
+
+
+def _build_npm_script(overlay_specs: list[str], verbose: bool = False) -> str:
+    """Shell script for the webpack container: reconcile the committed npm
+    layer (managed git entries from sync-apps), apply the local overlay, then
+    freshen the install stamp so the webpack startup hook doesn't re-run a
+    plain `npm install` that could prune the overlay.
+    """
+    lines = [
+        "set -eux" if verbose else "set -eu",
+        "cd /app",
+        "npm install --no-audit --no-fund",
+    ]
+    if overlay_specs:
+        quoted = " ".join(shlex.quote(s) for s in overlay_specs)
+        lines.append(f"npm install --no-save --no-audit --no-fund {quoted}")
+    lines.append("touch node_modules/.arches-toolkit-install-stamp")
+    return "\n".join(lines)
+
+
+def _run_npm_install(project_root: Path, script: str) -> None:
+    # --user app: the webpack service starts as root (to chown the volume)
+    # but node_modules must stay app-owned.
+    argv = cw._compose_base_argv(project_root) + [
+        "exec", "-T", "--user", "app", "webpack", "sh", "-euc", script,
+    ]
+    _output.stage("Installing frontend dependencies (npm)")
     _output.cmd(argv)
     completed = subprocess.run(argv, env=cw._compose_env())
     if completed.returncode != 0:
@@ -172,6 +235,10 @@ def install(
         False, "--no-migrate",
         help="Skip applying pending Django migrations after the install",
     ),
+    no_npm: bool = typer.Option(
+        False, "--no-npm",
+        help="Skip the frontend (npm) dependency install for npm-managed apps",
+    ),
 ) -> None:
     """Install the project and all apps from apps.yaml into the venv volume."""
     _docker_or_die()
@@ -180,12 +247,19 @@ def install(
     manifest_path = project_root / manifest_mod.DEFAULT_MANIFEST_NAME
     manifest = manifest_mod.load(manifest_path)
     develop = list(manifest_mod.iter_develop(manifest))
+    npm_managed = any(a.npm for a in manifest.apps)
 
     script = _build_install_script(develop, project_root, verbose=_output.is_verbose())
 
     web_up = _web_is_running(project_root)
     _run_install(project_root, script, web_up=web_up)
 
+    if web_up and npm_managed and not no_npm:
+        overlay = _npm_overlay_specs(develop, project_root)
+        _run_npm_install(
+            project_root,
+            _build_npm_script(overlay, verbose=_output.is_verbose()),
+        )
     if web_up and not no_migrate:
         _run_migrate(project_root)
     if web_up and not no_restart:

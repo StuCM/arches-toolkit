@@ -16,10 +16,13 @@ from arches_toolkit.commands.sync_apps import (
     INSTALLED_APPS_MARKER_START,
     LEGACY_COMPOSE_APPS_FILENAME,
     _find_settings_path,
+    _npm_git_url,
+    _npm_spec,
     _python_module_name,
     _dep_spec,
     _remove_legacy_compose_apps,
     _sync_installed_apps,
+    _sync_package_json,
     _sync_pyproject,
 )
 
@@ -444,4 +447,127 @@ def test_sync_installed_apps_handles_missing_settings_gracefully(tmp_path: Path)
         [AppEntry(package="arches-foo", source="pypi", mode="release")],
         tmp_path,
     )
+    assert "not found" in status
+
+
+# --------------------------------------------------------------------------- #
+# npm dependency management
+# --------------------------------------------------------------------------- #
+
+
+def test_npm_git_url_https():
+    assert _npm_git_url("https://github.com/x/arches-foo.git") == (
+        "git+https://github.com/x/arches-foo.git"
+    )
+
+
+def test_npm_git_url_ssh_shorthand():
+    """git@host:org/repo.git needs rewriting — npm only takes URL forms."""
+    assert _npm_git_url("git@github.com:x/arches-foo.git") == (
+        "git+ssh://git@github.com/x/arches-foo.git"
+    )
+
+
+def test_npm_git_url_already_prefixed():
+    assert _npm_git_url("git+https://github.com/x/y.git") == (
+        "git+https://github.com/x/y.git"
+    )
+
+
+def test_npm_spec_develop_defaults_to_main():
+    entry = AppEntry(
+        package="arches-foo", source="git",
+        repo="https://github.com/x/arches-foo.git", mode="develop", npm=True,
+    )
+    assert _npm_spec(entry) == "git+https://github.com/x/arches-foo.git#main"
+
+
+def test_npm_spec_release_pypi_exact_pin_uses_tag_convention():
+    entry = AppEntry(
+        package="arches-foo", source="pypi", version="1.2.3",
+        repo="https://github.com/x/arches-foo.git", mode="release", npm=True,
+    )
+    assert _npm_spec(entry) == "git+https://github.com/x/arches-foo.git#v1.2.3"
+
+
+def test_npm_spec_release_pypi_range_specifier_underivable():
+    """A range like ~=2.0 has no single tag to point npm at — skip, warn."""
+    entry = AppEntry(
+        package="arches-foo", source="pypi", version="~=2.0",
+        repo="https://github.com/x/arches-foo.git", mode="release", npm=True,
+    )
+    assert _npm_spec(entry) is None
+
+
+def test_npm_spec_release_git_no_ref_uses_default_branch():
+    entry = AppEntry(
+        package="arches-foo", source="git",
+        repo="https://github.com/x/arches-foo.git", mode="release", npm=True,
+    )
+    assert _npm_spec(entry) == "git+https://github.com/x/arches-foo.git"
+
+
+def _write_package_json(tmp_path: Path, doc: dict) -> Path:
+    import json as _json
+    p = tmp_path / "package.json"
+    p.write_text(_json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    return p
+
+
+def _read_package_json(p: Path) -> dict:
+    import json as _json
+    return _json.loads(p.read_text(encoding="utf-8"))
+
+
+def _npm_entry(**kw) -> AppEntry:
+    base = dict(
+        package="arches-foo", source="git",
+        repo="https://github.com/x/arches-foo.git",
+        ref="v1.0.0", mode="develop", npm=True,
+    )
+    base.update(kw)
+    return AppEntry(**base)
+
+
+def test_sync_package_json_adds_managed_entry(tmp_path: Path):
+    p = _write_package_json(tmp_path, {"name": "my-project", "dependencies": {
+        "arches": "archesproject/arches#stable/8.1.x",
+    }})
+    _sync_package_json([_npm_entry()], tmp_path)
+    doc = _read_package_json(p)
+    assert doc["dependencies"]["arches-foo"] == (
+        "git+https://github.com/x/arches-foo.git#v1.0.0"
+    )
+    # hand-written deps untouched; managed names tracked
+    assert doc["dependencies"]["arches"] == "archesproject/arches#stable/8.1.x"
+    assert doc["archesToolkit"]["managedDependencies"] == ["arches-foo"]
+
+
+def test_sync_package_json_removes_deregistered_entry(tmp_path: Path):
+    p = _write_package_json(tmp_path, {"name": "my-project"})
+    _sync_package_json([_npm_entry()], tmp_path)
+    _sync_package_json([], tmp_path)
+    doc = _read_package_json(p)
+    assert "arches-foo" not in doc.get("dependencies", {})
+    assert "archesToolkit" not in doc
+
+
+def test_sync_package_json_idempotent(tmp_path: Path):
+    p = _write_package_json(tmp_path, {"name": "my-project"})
+    _sync_package_json([_npm_entry()], tmp_path)
+    before = p.read_text(encoding="utf-8")
+    status = _sync_package_json([_npm_entry()], tmp_path)
+    assert "no changes" in status
+    assert p.read_text(encoding="utf-8") == before
+
+
+def test_sync_package_json_ignores_non_npm_apps(tmp_path: Path):
+    p = _write_package_json(tmp_path, {"name": "my-project"})
+    _sync_package_json([_npm_entry(npm=False)], tmp_path)
+    doc = _read_package_json(p)
+    assert "arches-foo" not in doc.get("dependencies", {})
+
+
+def test_sync_package_json_missing_file_skips(tmp_path: Path):
+    status = _sync_package_json([_npm_entry()], tmp_path)
     assert "not found" in status

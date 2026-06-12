@@ -47,6 +47,12 @@ def add_app(
     mode: Mode = typer.Option(
         Mode.release, "--mode", help="release: pinned dep; develop: bind-mounted editable install"
     ),
+    npm: bool | None = typer.Option(
+        None, "--npm/--no-npm",
+        help="App also declares frontend deps in a root package.json — manage a "
+             "git entry for it in the project's package.json (auto-detected from "
+             "the clone for develop apps when unset)",
+    ),
     manifest_path: Path = typer.Option(
         Path("apps.yaml"),
         "--manifest",
@@ -82,6 +88,7 @@ def add_app(
         repo=repo,
         ref=ref,
         mode=mode.value,
+        npm=bool(npm),
     )
 
     manifest = manifest_mod.load(manifest_path)
@@ -101,6 +108,16 @@ def add_app(
             typer.echo(f"Cloned {entry.repo} → {path}")
         else:
             typer.echo(f"Clone already exists at {path} — leaving untouched")
+        # Auto-detect npm participation from the working tree when not stated
+        # explicitly: a root package.json means the app declares frontend deps.
+        if npm is None and (path / "package.json").exists():
+            entry.npm = True
+            manifest.upsert(entry)
+            manifest_mod.save(manifest, manifest_path)
+            typer.echo(
+                f"{package}: root package.json detected — npm entry will be "
+                "managed in the project's package.json (npm: true in apps.yaml)"
+            )
 
     project_root = manifest_path.parent
 
@@ -119,4 +136,6 @@ def add_app(
         return
 
     typer.echo("")
-    install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
+    install_cmd.install(
+        project_root=project_root, no_restart=False, no_migrate=False, no_npm=False
+    )

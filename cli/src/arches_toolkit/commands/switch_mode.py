@@ -132,7 +132,9 @@ def switch_mode(
             return
 
         typer.echo("")
-        install_cmd.install(project_root=project_root, no_restart=False, no_migrate=False)
+        install_cmd.install(
+            project_root=project_root, no_restart=False, no_migrate=False, no_npm=False
+        )
     except BaseException:
         # BaseException, not Exception: Ctrl-C (KeyboardInterrupt) mid-switch
         # must also restore the manifest, or a cancelled switch leaves
