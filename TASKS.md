@@ -307,7 +307,12 @@ the recommended response is to bump the base image ref.
 
 ## Open issue: cold-start signposting
 
-**Status:** UX papercut, not a correctness bug.
+**Status:** resolved 2026-06-11 — `dev` now runs detached (`up -d
+--progress quiet`), polls service state, and prints exactly the milestone
+line this issue asked for (infra ✓ / init ✓ / webpack ✓ / web ✓ with
+elapsed times, a waiting note every 30s, and failure short-circuits
+pointing at the right `logs` command). Original sketch kept below for
+context.
 
 First `arches-toolkit dev` from a clean state is 60-120s of opaque waiting.
 Services come up in dependency order (db → es/rabbitmq → init → webpack →
@@ -667,9 +672,8 @@ Follow-ups not yet done:
   createcachetable already are; the settings seed has a graph-existence
   check; `es setup_indexes` needs verifying) and run them all every boot —
   self-healing at the cost of seconds.
-- **Cold-start signposting** (see open issue above) — every wait in the
-  smoke test re-confirmed it: first boot and post-install webpack restarts
-  both look hung while healthy.
+- ~~Cold-start signposting~~ — resolved 2026-06-11 by the detached `dev`
+  readiness milestones.
 
 ---
 
