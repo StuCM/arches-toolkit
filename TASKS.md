@@ -649,6 +649,126 @@ conflict.
 
 ---
 
+## Design proposal: per-project recipe pinning + version-keyed recipe selection
+
+**Status:** designed 2026-06-27, not implemented. Consolidates and
+supersedes two scattered backlog bullets — "Per-version overlay strategy"
+and the recipe-axis half of "Explicit multi-project registry" — into one
+spec. Sequence alongside the native-compose refactor; both touch the same
+`.env`/recipe plumbing.
+
+**The gap.** The toolkit ships the build recipe (Dockerfile + compose
+files) inside the wheel, so a project never carries them — this kills
+stale-Dockerfile drift, the old toolkit's worst pain. But it created an
+asymmetry across the two version axes a project actually has:
+
+- *Axis 1 — arches version + patches (the base image).* Pinned per project
+  and user-choosable today: `init` writes `ARCHES_TOOLKIT_IMAGE` /
+  `ARCHES_TOOLKIT_TAG` to `.env` and compose reads them as the `FROM`. A
+  project can already point at a different arches version, or at a
+  locally-rebuilt patched base (`docker/base/build.sh --arches-ref
+  <branch> --tag my-patched-8.1`, then set the tag in `.env`). Per-project,
+  committed, explicit. **No gap here** beyond ergonomics (no
+  `image set`/`upgrade` front door — it's a manual `.env` edit).
+- *Axis 2 — the build recipe itself (Dockerfile/compose).* NOT pinned per
+  project. "Which Dockerfile you get" = "which CLI version is installed on
+  the machine," because the recipe lives in the wheel. No project-level
+  pin, no compatibility check, no `upgrade`. Upgrading the recipe is a
+  global `uv tool upgrade arches-toolkit` that silently moves *every*
+  project on the machine at once.
+
+**Why this matters (the requirement).** We routinely run multiple projects
+built against varying arches versions on one machine, and sometimes must
+patch core, rebuild the base image, and tell a single project to use it.
+The old submodule gave us two freedoms the current model removed:
+per-project recipe *version*, and per-project recipe *divergence*. We need
+those back **without** reintroducing N rotting copies. Axis 1 already
+covers "different base image per project"; the missing piece is the recipe
+axis. The single generic Dockerfile absorbs version differences only as
+long as they're expressible via a different `FROM` tag — it breaks the
+moment two supported arches lines need genuinely different recipe logic
+(webpack invocation, entrypoint step, 7.x-vs-8.x build differences).
+
+**Design.**
+
+1. **Per-project recipe pin (the keystone).** Record the toolkit/recipe
+   version the project targets in committed config (e.g. `[tool.arches-toolkit]
+   version = "x.y"`, or an `.env` line). `dev`/`build` check the installed
+   CLI satisfies it and warn/error on mismatch. This restores per-project
+   recipe *version* + reproducibility (same git commit → same recipe,
+   regardless of which CLI the machine happens to have) without copying
+   files into the tree. It is what makes everything below safe.
+
+2. **Version-keyed recipe cascade (most-specific-wins).** Store recipes
+   keyed by version and resolve them from the version the project already
+   declares — do **not** add an independent "pick a Dockerfile" knob (it
+   would desync from the base tag):
+
+   ```
+   Dockerfile.7.6
+   Dockerfile.8        ← every 8.x project rides this
+   Dockerfile.8.2      ← added only when 8.2 actually breaks something
+   ```
+
+   Resolution: parse the project version → exact minor (`8.2`) → major line
+   (`8`) → error. File count stays minimal: we keep `8` until a point
+   release forces a fork, then `8.2` is picked up *only* by 8.2 projects;
+   everyone else is untouched. Mirrors the existing `templates/{8.1,7.6}/`
+   convention. Caveat: compose files merge (layer `compose.arches-8.2.yaml`
+   via `-f`, override only deltas), Dockerfiles do **not** — so
+   `Dockerfile.8.2` is a whole copy. We accept the occasional whole-file
+   fork over `if version >= 8` conditional scatter, *because* the cascade
+   keeps forks rare. Selection derives from `ARCHES_TOOLKIT_TAG`; the
+   recipe and the `FROM` tag come from one source of truth, so they can't
+   desync.
+
+3. **Two distinct upgrades — keep them separate.**
+   - `uv tool upgrade arches-toolkit` upgrades the *binary + bundled recipe
+     catalog* on the machine. It changes what recipes are **available**; it
+     must **not** change what any project **uses**. Safe precisely because
+     of (1) + (2): a newer CLI still ships `7.6`/`8`, so old projects
+     resolve unchanged.
+   - `arches-toolkit upgrade` (new, per-project) bumps *this* project's pin
+     (and/or base tag) to a newer available version, landing as a reviewable
+     commit in that repo. This is "pull the latest Dockerfile for this
+     project" — it decomposes into refresh-the-catalog (`uv tool upgrade`)
+     then adopt-it-here (`arches-toolkit upgrade`). An `image set <tag>`
+     gives the same explicit front door for the base-image axis.
+
+4. **Distribution: bundle by default.** Recipes are kilobytes of text, so
+   the size argument for "pull only what we need" is moot — bundling all
+   version-keyed recipes in the wheel is simplest, offline, and atomic with
+   the CLI version (`arches-toolkit x.y` *is* a known recipe set). The only
+   real cost is release coupling: shipping a fixed `8.2` recipe needs a CLI
+   release. For the rare case where that coupling bites (urgent fix, or a
+   patched-core project needing a bespoke recipe), add a **digest-pinned
+   external recipe override** — a project may point at a local path or a
+   pulled, content-addressed recipe ref. This is the submodule's
+   per-project divergence freedom, reborn as a rare, digest-locked opt-in
+   instead of the default. A full remote *pull* mechanism (decoupling
+   recipe cadence from CLI releases entirely) is strictly more machinery
+   (fetch, cache, git auth) and is **not** the default — reserve it for if
+   release coupling proves painful.
+
+**Net contract.** Pin the recipe per project the way `.env` already pins
+the base image; resolve the recipe deterministically from the declared
+version via a minimal most-specific cascade; ship recipes bundled with a
+rare digest-pinned override for divergence; and keep "upgrade the machine's
+catalog" strictly separate from "adopt a new recipe in this project."
+Restores both submodule freedoms (per-project recipe version + divergence)
+with zero rotting copies.
+
+**Rejected: an independent "which Dockerfile" env.** A second knob separate
+from `ARCHES_TOOLKIT_TAG` lets the recipe and base image desync (8.x recipe
+on a 7.6 base). Derive the recipe from the one declared version instead.
+
+**Rejected: free per-project Dockerfile copies (the old submodule).**
+Brings back N copies that rot; a security/build fix must be hand-propagated
+to every repo. The cascade + bundle + digest-override recovers the
+freedoms without the copies.
+
+---
+
 ## Smoke test outcome (2026-06-11, arches dev/8.2.x)
 
 Full lifecycle exercised on a fresh project against an 8.2 base image:
@@ -690,7 +810,9 @@ later prioritisation.
   registry plus `arches-toolkit ls` / `activate` would help devs juggling
   multiple Arches instances (e.g. Catalina + Quartz + vanilla 8.1) on one
   machine without docker-name clashes. The `arches-toolkit list` command
-  (landed) is a partial precedent.
+  (landed) is a partial precedent. *(The per-project version/recipe half of
+  this is covered by "Design proposal: per-project recipe pinning" above;
+  this bullet is now just the name-collision/registry concern.)*
 - **`generate-debug-config` for VS Code.** Cheap to produce; removes a
   documentation step; immediately useful with the debugpy port already
   exposed in `compose.dev.yaml`. Output a `.vscode/launch.json` stub.
@@ -714,15 +836,17 @@ later prioritisation.
   Stretch goal: a reusable workflow that runs each F&T-maintained app's
   harness in CI against the latest base image so stock-Arches regressions
   fail loudly at the app level, not when someone tries to consume it.
-- **Per-version overlay strategy — design before drift accumulates.** Our
-  single-Dockerfile, single-compose model is cleaner than HE's per-version
-  template trees (`_6.1_`, `_6.2_`, `_7.0_` … `_7.6_`), but we need a
-  deliberate plan for how version-conditional behaviour will be expressed
-  *before* `if version >= 8` branches start scattering through compose /
-  Dockerfile / entrypoint. Options: version-scoped compose overlays
-  (`compose.arches-7.6.yaml`), build-arg-driven conditionals, or per-version
-  patch overlays in the base image. Decide while there's still only one
-  supported line.
+- **Per-version overlay strategy — design before drift accumulates.**
+  *(Folded into "Design proposal: per-project recipe pinning + version-keyed
+  recipe selection" above — the version-keyed cascade is the decided
+  answer.)* Our single-Dockerfile, single-compose model is cleaner than
+  HE's per-version template trees (`_6.1_`, `_6.2_`, `_7.0_` … `_7.6_`), but
+  we need a deliberate plan for how version-conditional behaviour will be
+  expressed *before* `if version >= 8` branches start scattering through
+  compose / Dockerfile / entrypoint. Options: version-scoped compose
+  overlays (`compose.arches-7.6.yaml`), build-arg-driven conditionals, or
+  per-version patch overlays in the base image. Decide while there's still
+  only one supported line.
 
 Things HE does *not* do that we already cover and shouldn't regress on:
 no-Dockerfile-in-project-tree, `apps.yaml` + develop mode, `uv sync`
