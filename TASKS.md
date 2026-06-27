@@ -360,26 +360,44 @@ rather than an edge case: a host clone bind-mounted over `/opt/arches`
 **must carry the same patch series**, or you live-edit a different arches
 than you deploy.
 
-**Decided mechanism — explicit apply/remove + loud `dev` check (do not
-auto-mutate the user's repo).**
+**Decided mechanism — isolated git worktree at the pinned base ref; never
+touch the user's working branch.**
 
-1. `arches-toolkit arches-src apply` — runs the *same* `git am
-   docker/base/patches/*` the base image runs, onto the `ARCHES_SRC` clone.
-   Idempotent (detects already-applied → no-op). Same operation as the
-   image build ⇒ consistency by construction. Must also check the clone is
-   at the project's `ARCHES_REF`; a `setup` helper can clone at the right
-   ref to begin with.
-2. `arches-toolkit arches-src remove` — pops the patch commits back off, to
-   clean upstream.
-3. `dev` with `ARCHES_SRC` set runs `git apply --check` detection; if the
-   patches are absent it **warns loudly** with the one fix command rather
-   than mutating the host clone (auto-`git am` creates commits on the
-   user's WIP branch and breaks on rebase — surprising). Opt-in
-   `--apply-patches` / `.env` flag for those who want it automatic.
-4. Authoring round-trip: applied as commits, the dev edits core on top,
-   then `git format-patch` (or an `arches-src export-patches` helper)
-   regenerates `docker/base/patches/` — new toolkit changes flow straight
-   back into the patch series.
+The bind mount points at a toolkit-managed *worktree*, not the user's
+primary checkout. `ARCHES_SRC` resolves to a worktree of the same repo
+(shared `.git`, second checked-out path) created at the project's
+`ARCHES_REF` with the patch series applied there. Running the stack has
+**zero** effect on the branch the dev actually works on — no commits land
+in their history, addressing the "I don't want commits just to run the
+container" objection. The worktree being checked out *at the pinned base*
+also handles the "apply patches N commits back" case exactly: patches are
+applied at the commit they were cut against, not onto a moved-on HEAD.
+
+1. `arches-toolkit arches-src setup [--ref <ARCHES_REF>] [path]` — creates
+   the worktree at the pinned ref and applies `docker/base/patches/*`
+   there (commits inside the throwaway worktree are invisible to the user's
+   branch; `--3way` for drift tolerance). Sets `ARCHES_SRC` to the worktree
+   path. Idempotent (already-set-up → no-op / re-sync).
+2. `arches-toolkit arches-src remove` — deletes the worktree; the user's
+   primary checkout was never modified, so removal is clean (no reverse-
+   apply against possibly-edited files).
+3. `dev` with `ARCHES_SRC` set runs a consistency check (worktree present,
+   at the expected ref, patches applied); if not, it **warns loudly** with
+   the one `arches-src setup` command rather than mutating anything. Opt-in
+   `--apply-patches` / `.env` flag to auto-setup.
+4. Authoring round-trip: the dev edits core *in the worktree* (the live
+   source for the container), then `git format-patch` (or an `arches-src
+   export-patches` helper) regenerates `docker/base/patches/` — new toolkit
+   changes flow straight back into the patch series. Their primary branch
+   stays uninvolved.
+
+Why not `git am`/`git apply` onto the user's own checkout: `git am`
+pollutes their branch history and breaks on rebase; plain `git apply` to
+the working tree intermixes toolkit patches with the dev's own edits in
+`git status`, which is exactly what you don't want while live-editing core.
+The worktree keeps patch state cleanly separated *and* leaves the working
+branch untouched. (`git am` is still used inside the ephemeral base-image
+build, where commits are invisible and 3-way robustness is free.)
 
 Tier-1 dependency note: this is part of *finishing the local dev
 workflow*, because core-dev via `ARCHES_SRC` is a daily workflow here, not
