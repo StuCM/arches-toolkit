@@ -236,7 +236,7 @@ Three common causes:
    `arches-toolkit restart webpack`. Container state keeps the mount, but
    webpack rebuilds the watch tree from scratch.
 
-### Warnings about compose variables (`$STAMP`, `$PROBE`, etc.)
+### Warnings about compose variables (`$STAMP`, `$REGEN`, etc.)
 
 Harmless — some shell variables inside our compose scripts need `$$` escaping
 so compose doesn't try to interpolate them. If you see these warnings on a

@@ -65,22 +65,22 @@ services:
     # Skip collectstatic in dev: runserver serves STATICFILES_DIRS directly and
     # webpack-dev-server serves bundles on :9000. collectstatic races webpack's
     # HMR rewrites of hashed bundles and crashes init.
-    # Warm-start fast path: probe django_migrations via psycopg2 (sub-second)
-    # and skip Django boot entirely if the schema is already applied.
+    #
+    # Idempotent bootstrap: every step below is safe to run on every boot, so
+    # there is no cold/warm probe. A boot that fails partway is repaired on the
+    # next boot rather than leaving a half-seeded DB the old warm path would
+    # never revisit (cache table / ES indexes / System Settings seed skipped
+    # forever, recoverable only by wiping the volume). migrate is a no-op when
+    # there are no pending migrations; createcachetable creates only if absent;
+    # es setup_indexes is idempotent (create_index ignores HTTP 400 when the
+    # index exists); the System Settings seed is guarded by a graph-existence
+    # check. Cost is a few seconds of Django boot per warm start. Mirrors the
+    # prod init in compose.yaml (minus collectstatic, plus the dev-only
+    # frontend_configuration regen). See docs/compose-deep-dive.md.
     command:
       - sh
       - -euc
       - |
-        PROBE='
-        import os, sys, psycopg2
-        try:
-            c = psycopg2.connect(host=os.environ["PGHOST"], port=int(os.environ.get("PGPORT","5432")), user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"], dbname=os.environ["PGDBNAME"])
-            cur = c.cursor()
-            cur.execute("SELECT 1 FROM django_migrations LIMIT 1")
-            sys.exit(0 if cur.fetchone() else 1)
-        except Exception:
-            sys.exit(1)
-        '
         REGEN='
         import django
         django.setup()
@@ -88,25 +88,14 @@ services:
         generate_frontend_configuration()
         print("init: regenerated frontend_configuration")
         '
-        if python -c "$$PROBE" 2>/dev/null; then
-          # Warm start: apply pending migrations (fast no-op when none) so
-          # apps added while the stack was down don't boot with a stale
-          # schema; createcachetable stays cold-start-only.
-          echo "init: db already initialized — applying any pending migrations"
-          python manage.py migrate --noinput
-          # Warm-start regen: cold-start migrate triggers app.ready() →
-          # generate_frontend_configuration(); we replicate it here so webpack
-          # picks up app paths after release↔develop install changes.
-          python -c "$$REGEN" 2>&1 || echo "init: frontend_configuration regen failed (run arches-toolkit setup-db if DB is incomplete)"
-        else
-          python manage.py migrate --noinput
-          python manage.py createcachetable
-          # Cold-start only: idempotent ES indexes + seed System Settings if
-          # the graph row is absent. Mirrors the prod init in compose.yaml so
-          # `arches-toolkit dev` is sufficient to bring up a usable stack on a
-          # fresh project — no separate `setup-db` required.
-          python manage.py es setup_indexes
-          python <<'PY'
+        echo "init: applying database migrations"
+        python manage.py migrate --noinput
+        echo "init: creating cache table"
+        python manage.py createcachetable
+        echo "init: setting up search indexes"
+        python manage.py es setup_indexes
+        echo "init: seeding system settings (first boot only)"
+        python <<'PY'
         import os, django
         django.setup()
         from django.conf import settings
@@ -114,7 +103,7 @@ services:
         from arches.app.models.models import GraphModel
         SYSTEM_SETTINGS_GRAPHID = "ff623370-fa12-11e6-b98b-6c4008b05c4c"
         if GraphModel.objects.filter(graphid=SYSTEM_SETTINGS_GRAPHID).exists():
-            print("system settings graph present; skipping seed")
+            print("init: system settings graph present; skipping seed")
         else:
             base = os.path.join(settings.ROOT_DIR, "db", "system_settings")
             call_command("packages", operation="import_graphs",
@@ -124,7 +113,10 @@ services:
                          source=os.path.join(base, "Arches_System_Settings.json"),
                          overwrite="overwrite")
         PY
-        fi
+        # Regenerate every boot so webpack picks up app paths after
+        # release↔develop install changes. Non-fatal: backend still works.
+        echo "init: regenerating frontend_configuration"
+        python -c "$$REGEN" 2>&1 || echo "init: frontend_configuration regen failed (run arches-toolkit setup-db if DB is incomplete)"
 
   cantaloupe:
     ports:

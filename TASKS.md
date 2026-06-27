@@ -853,14 +853,16 @@ what the app-harness backlog idea would catch in app CI).
 
 Follow-ups not yet done:
 
-- **Idempotent init bootstrap.** init's cold/warm probe (any
-  `django_migrations` row) means a bootstrap that fails partway leaves a
-  DB the warm path never repairs (cache table / ES indexes / System
-  Settings seed skipped forever); recovery requires knowing to wipe the
-  volume. Better: drop the probe, make every step idempotent (migrate and
-  createcachetable already are; the settings seed has a graph-existence
-  check; `es setup_indexes` needs verifying) and run them all every boot —
-  self-healing at the cost of seconds.
+- ~~**Idempotent init bootstrap.**~~ — resolved 2026-06-27. Dropped the
+  dev `init` cold/warm `django_migrations` probe; every step now runs on
+  every boot (migrate / createcachetable / es setup_indexes / graph-guarded
+  System Settings seed / frontend_configuration regen), so a boot that
+  fails partway self-heals on the next instead of stranding the DB in the
+  warm path. `es setup_indexes` idempotency confirmed against arches
+  `stable/8.1.2` (`SearchEngine.create_index(..., ignore_status=400)`
+  swallows the index-exists 400). Dev now matches the always-run prod init
+  (minus collectstatic, plus the dev-only regen). Docs in
+  `compose-deep-dive.md` updated.
 - ~~Cold-start signposting~~ — resolved 2026-06-11 by the detached `dev`
   readiness milestones.
 
