@@ -347,7 +347,58 @@ start, and right now it looks broken even though it isn't.
 
 ## Open design problem: ARCHES_SRC bind mount shadows base-image patches
 
-**Status:** unresolved. Affects `arches-toolkit dev` with `ARCHES_SRC` set.
+**Status:** model resolved 2026-06-27 — *no fork; upstream + patches is
+authoritative everywhere, including the bind mount.* Mechanism designed
+below, not yet implemented.
+
+**Resolved model.** There is no F&T fork. The runtime is always upstream
+`archesproject/arches` at a ref **+ `git am docker/base/patches/*`**.
+Patches are the only divergence and are apply/removable; per-project base
+images are built (and pinned) from upstream+patches so a project never
+drifts until it rebuilds. The corollary that makes `ARCHES_SRC` first-class
+rather than an edge case: a host clone bind-mounted over `/opt/arches`
+**must carry the same patch series**, or you live-edit a different arches
+than you deploy.
+
+**Decided mechanism — explicit apply/remove + loud `dev` check (do not
+auto-mutate the user's repo).**
+
+1. `arches-toolkit arches-src apply` — runs the *same* `git am
+   docker/base/patches/*` the base image runs, onto the `ARCHES_SRC` clone.
+   Idempotent (detects already-applied → no-op). Same operation as the
+   image build ⇒ consistency by construction. Must also check the clone is
+   at the project's `ARCHES_REF`; a `setup` helper can clone at the right
+   ref to begin with.
+2. `arches-toolkit arches-src remove` — pops the patch commits back off, to
+   clean upstream.
+3. `dev` with `ARCHES_SRC` set runs `git apply --check` detection; if the
+   patches are absent it **warns loudly** with the one fix command rather
+   than mutating the host clone (auto-`git am` creates commits on the
+   user's WIP branch and breaks on rebase — surprising). Opt-in
+   `--apply-patches` / `.env` flag for those who want it automatic.
+4. Authoring round-trip: applied as commits, the dev edits core on top,
+   then `git format-patch` (or an `arches-src export-patches` helper)
+   regenerates `docker/base/patches/` — new toolkit changes flow straight
+   back into the patch series.
+
+Tier-1 dependency note: this is part of *finishing the local dev
+workflow*, because core-dev via `ARCHES_SRC` is a daily workflow here, not
+an edge case. The immediate prerequisite either way is that the patch
+series and any lingering fork description agree on the same arches —
+today the fork branch (`docker/8.1`, based on `dev/8.1.x` + obsolete
+cruft) does **not** match what the base builds (`stable/8.1.2` + the single
+curated patch); the resolved model retires the fork, so the patch series
+becomes the sole description.
+
+**Rejected mechanisms.** Doc-only (relies on discipline; the daily-use
+reality makes silent drift too likely). Patch-overlay `.pth` shim (cleanest
+semantics but fiddly, and the bind mount is the simple mental model devs
+want). Eliminate-patches-by-upstreaming (the end goal, not a near-term
+mechanism).
+
+### Original problem statement (kept for context)
+
+Affects `arches-toolkit dev` with `ARCHES_SRC` set.
 
 The `ARCHES_SRC` overlay (`compose.arches-src.yaml`) bind-mounts a host
 clone of arches over `/opt/arches`. Because bind mounts replace directory
