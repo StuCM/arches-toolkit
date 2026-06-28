@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .. import patches as patches_mod
+from .. import patches_manifest
 from ..patches import PATCHES_RELDIR, PatchHeader, PatchHeaderError
 
 app = typer.Typer(no_args_is_help=True, help="Inspect and maintain Arches patch series")
@@ -90,22 +91,75 @@ def _render_table(headers: list[PatchHeader], *, with_status_column: bool) -> Ta
 
 @app.command("list")
 def list_(
-    patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+    project_root: Path = typer.Option(
+        Path("."), "--project-root", help="Project root (for patches.yaml + local patches)"
     ),
 ) -> None:
-    """List patches with header metadata."""
-    pdir = _resolve_patches_dir(patches_dir)
-    _ensure_patches_dir(pdir)
-    headers = patches_mod.parse_all(pdir)
-    if not headers:
-        typer.echo(f"no patches in {pdir}")
+    """List patches (toolkit series + local overlay) with on/off state.
+
+    Reference a patch by the id shown, its number, or a unique substring when
+    toggling with `patch enable|disable`.
+    """
+    entries = patches_manifest.load(project_root.resolve())
+    if not entries:
+        typer.echo("no patches found (toolkit series empty and no ./patches/*.patch)")
         return
-    table = _render_table(headers, with_status_column=False)
-    for h in headers:
-        last, age = _format_review(h)
-        table.add_row(h.name, h.subject or "—", h.upstream or "—", last, age)
+
+    table = Table(title=f"{len(entries)} patch(es)")
+    table.add_column("#", justify="right")
+    table.add_column("id", overflow="fold")
+    table.add_column("src")
+    table.add_column("on")
+    table.add_column("subject", overflow="fold")
+    table.add_column("upstream", overflow="fold")
+    table.add_column("reviewed")
+    for i, e in enumerate(entries, start=1):
+        last, _age = _format_review(e.header)
+        table.add_row(
+            str(i),
+            e.id,
+            e.source,
+            "[green]✓[/green]" if e.enabled else "[red]✗[/red]",
+            e.subject,
+            e.header.upstream or "—",
+            last,
+        )
     console.print(table)
+
+
+def _toggle(project_root: Path, selectors: list[str], *, enabled: bool) -> None:
+    try:
+        changed = patches_manifest.set_enabled(
+            project_root.resolve(), selectors, enabled=enabled
+        )
+    except patches_manifest.PatchSelectorError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(1)
+    verb = "enabled" if enabled else "disabled"
+    for e in changed:
+        typer.echo(f"{verb}: {e.id}")
+    typer.echo(
+        "Re-apply to a running ARCHES_SRC clone, or rebuild the base image, "
+        "for this to take effect."
+    )
+
+
+@app.command("enable")
+def enable(
+    selectors: list[str] = typer.Argument(..., help="Patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Enable one or more patches (clears them from patches.yaml `disabled`)."""
+    _toggle(project_root, selectors, enabled=True)
+
+
+@app.command("disable")
+def disable(
+    selectors: list[str] = typer.Argument(..., help="Patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Disable one or more patches (records them in patches.yaml `disabled`)."""
+    _toggle(project_root, selectors, enabled=False)
 
 
 @app.command("renew")

@@ -122,16 +122,30 @@ reference.
 
 ## Patches against Arches core
 
+Patches come in two layers, mirroring apps: the **toolkit series** (shipped with
+the CLI, baked into the base image, enabled by default) and a **local overlay**
+(`*.patch` files in the project's `patches/` dir). Selection lives in
+`patches.yaml` and is managed by id/number/substring — no hand-editing:
+
+```bash
+arches-toolkit patch list                  # numbered table: id, source, on/off, subject, upstream
+arches-toolkit patch disable 1             # turn a patch off for this project (by number)
+arches-toolkit patch enable frontend       # turn it back on (by unique substring)
+arches-toolkit patch status                # like list, plus GitHub PR state if GH_TOKEN set
+arches-toolkit patch renew my-fix          # bump Last-reviewed to today
+```
+
+`patch list` shows every patch with an `on` column; `enable`/`disable` record only
+deviations from "all enabled" in `patches.yaml` (no file means everything is on).
+
+Authoring a new toolkit patch:
+
 ```bash
 arches-toolkit patch start my-fix          # clones arches into ~/.cache/arches-toolkit/patches/my-fix
 cd ~/.cache/arches-toolkit/patches/my-fix  # edit files, commit, etc.
 # ... git commit -am "..." with Upstream/Last-reviewed/Reason in the message ...
 cd -
 arches-toolkit patch finish my-fix --reason "..." --upstream "none yet"
-
-arches-toolkit patch list                  # table of patches + last-reviewed
-arches-toolkit patch status                # same, plus GitHub PR state if GH_TOKEN set
-arches-toolkit patch renew my-fix          # bump Last-reviewed to today
 ```
 
 ## Changing the Arches base

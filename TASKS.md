@@ -731,6 +731,67 @@ in the same repo, scaffolding for widgets/plugins/cards/components.
 
 ---
 
+## Design proposal: project patch selection (sits with apps)
+
+**Status:** control plane implemented 2026-06-28 (`patch list/enable/disable`
++ packaging); apply + promote + local `add` are the next increments.
+
+**Goal.** Manage which Arches-core patches apply *per project*, with the same
+manifest-plus-CLI-toggle UX as apps — referenced by id/name from a listed
+view, never by hand-editing patch files. Plus a local layer so a developer
+can try a patch before it's shared, and promote it into the shared series.
+
+**Two layers (mirrors develop-apps):**
+
+- **Toolkit series** — patches shipped with the CLI (`docker/base/patches`,
+  now force-included into the wheel as `arches_toolkit/_data/patches`; the
+  repo stays the single source of truth, the base image still consumes it
+  directly). The baseline, baked into the base image. Enabled by default.
+- **Local overlay** — `*.patch` files in the project's `patches/` directory.
+  Enabled by default. *Promote* a local patch into the toolkit series to
+  share it — **push to share, not to use**, the same contract as
+  develop-apps and the npm overlay.
+
+**Manifest.** `patches.yaml` at the project root records only *deviations*
+from "everything enabled" — a `disabled:` list of patch ids. Absent/empty
+manifest ⇒ all discovered patches enabled, so a fresh project needs no file.
+Mirrors how `apps.yaml` carries selection state.
+
+**Referencing patches.** By **id** (filename stem). Selectors accept the full
+id, the numeric prefix (`0001` / `1`), or any unique substring — so the CLI
+offers a numbered, toggle-by-name list. `patches.py.shipped_patches_dir()`
+resolves the series from package data (installed) with a repo fallback
+(editable/in-tree), which also fixes `patch list`/`status` from an installed
+CLI (they were repo-relative and silently empty in a project).
+
+**Why disabling matters even though the base image bakes all patches.** The
+enabled set is the *control plane* consumed by the appliers: the
+`ARCHES_SRC` worktree apply (which `git am`s only the enabled set onto the
+live clone — see the ARCHES_SRC worktree design) and, later, per-project
+base-image builds (ties to the recipe-pinning design). Today it records
+intent; the appliers consume it as they land.
+
+**Implemented now**
+- `patch list` — numbered table: id, source (toolkit/local), on/off,
+  subject, upstream, last-reviewed.
+- `patch enable|disable <selector…>` — flips state in `patches.yaml`
+  (creates it on first disable, removes it when back to all-enabled). Prunes
+  stale ids on write.
+- Patches shipped as wheel package data; `shipped_patches_dir()` resolution.
+- `patches_manifest.py` (the control-plane module, modelled on
+  `apps_manifest.py`) + tests.
+
+**Next increments**
+- `patch apply` — `git am` the enabled set onto an `ARCHES_SRC` worktree
+  (the consumer; pairs with the worktree feature).
+- `patch add <file>` — register a local `.patch` into `./patches/` (CLI, so
+  no manual file drop).
+- `patch promote <id>` — graduate a local patch into the toolkit series
+  (`docker/base/patches`, renumber + headers) → a toolkit PR → baked into
+  the next base image. Overlaps the existing `patch finish`.
+
+---
+
 ## Phase 2 (deferred — not started in Phase 1)
 
 - Helm chart rework in the `helm-arches` repo (charts deliberately do NOT

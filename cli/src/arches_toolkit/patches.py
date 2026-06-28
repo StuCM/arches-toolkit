@@ -27,6 +27,25 @@ from typing import Iterable
 
 PATCHES_RELDIR = Path("docker/base/patches")
 
+
+def shipped_patches_dir() -> Path:
+    """Directory of the toolkit's patch series, resolvable from an *installed* CLI.
+
+    Prefers the copy shipped as wheel package data (``arches_toolkit/_data/
+    patches``, force-included at build). Falls back to the repo source
+    (``docker/base/patches``) for editable / in-tree installs where the
+    package-data copy doesn't exist. The repo remains the single source of
+    truth; the wheel copy is build-time-derived.
+    """
+    from importlib import resources
+
+    pkg = Path(str(resources.files("arches_toolkit._data").joinpath("patches")))
+    if pkg.is_dir():
+        return pkg
+    # Editable/in-tree fallback: cli/src/arches_toolkit/patches.py →
+    # parents[3] is the repo root.
+    return Path(__file__).resolve().parents[3] / PATCHES_RELDIR
+
 # Header field regexes — anchored to line start, case-insensitive on the key.
 _HEADER_RE = {
     "upstream": re.compile(r"^Upstream:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE),

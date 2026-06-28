@@ -46,6 +46,13 @@ Issues = "https://github.com/flaxandteal/arches-toolkit/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/arches_toolkit"]
 
+# Ship the Arches core patch series with the wheel so an installed CLI can
+# read it (patch list/status + applying patches to a local ARCHES_SRC clone).
+# docker/base/patches stays the single source of truth — the base image build
+# still consumes it directly; this only copies it into the wheel at build time.
+[tool.hatch.build.targets.wheel.force-include]
+"../docker/base/patches" = "arches_toolkit/_data/patches"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
