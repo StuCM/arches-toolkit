@@ -24,7 +24,10 @@ RUN set -eux; \
         git clone "${ARCHES_REPO}" /src/arches && cd /src/arches && git checkout "${ARCHES_REF}"; \
     fi
 
-COPY patches/ /patches/
+# Patches live in the CLI package (cli/src/arches_toolkit/_data/patches) so they
+# ship with the wheel; they're injected here via a buildx named build context.
+# build.sh wires `--build-context patches=<repo>/cli/src/arches_toolkit/_data/patches`.
+COPY --from=patches . /patches/
 
 RUN set -eux; cd /src/arches; \
     if ls /patches/*.patch >/dev/null 2>&1; then \

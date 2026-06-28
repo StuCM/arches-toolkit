@@ -176,7 +176,7 @@ In **dev**, we *do* want them on the host so the editor's TypeScript language se
 
 ## Stage 6 patch: frontend_configuration
 
-See [docker/base/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch](../docker/base/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch). This is the single most important change the toolkit makes to Arches for non-root/read-only deployment. Without it, the compose/k8s topology doesn't work.
+See [cli/src/arches_toolkit/_data/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch](../cli/src/arches_toolkit/_data/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch). This is the single most important change the toolkit makes to Arches for non-root/read-only deployment. Without it, the compose/k8s topology doesn't work.
 
 ### What upstream Arches does
 
@@ -328,7 +328,7 @@ Depends on the base image having installed Arches with `uv pip install -e` — o
 
 ### Peer pod crashes with `PermissionError` on frontend_configuration
 
-The Stage 6 patch isn't applied to the image. Check that the base image tag in use (`ARCHES_TOOLKIT_TAG`) was built with the patches in `docker/base/patches/` applied. See [fork-inventory.md](fork-inventory.md) for patch provenance.
+The Stage 6 patch isn't applied to the image. Check that the base image tag in use (`ARCHES_TOOLKIT_TAG`) was built with the patches in `cli/src/arches_toolkit/_data/patches/` applied. See [fork-inventory.md](fork-inventory.md) for patch provenance.
 
 ### Init hangs on `collectstatic`
 
@@ -367,4 +367,4 @@ Chart is currently empty; when it lands, the mapping above is the starting contr
 - [compose-extras.md](compose-extras.md) — project-specific service additions
 - [fork-inventory.md](fork-inventory.md) — which Arches patches we carry and why
 - [../PLAN.md](../PLAN.md) — architectural context
-- [../docker/base/patches/](../docker/base/patches/) — maintained patches against the Arches fork
+- [../cli/src/arches_toolkit/_data/patches/](../cli/src/arches_toolkit/_data/patches/) — maintained patches against the Arches fork

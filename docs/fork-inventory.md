@@ -8,7 +8,7 @@ merge-base: 0ed5073974 (2026-04-14 at time of inventory)
 
 # Arches fork inventory
 
-Catalogue of commits on `flaxandteal/arches` branch `docker/8.1` that are absent from upstream `archesproject/arches` branch `dev/8.1.x`. Used to decide which divergences become maintained patches in [../docker/base/patches/](../docker/base/patches/) and which are obsoleted by the toolkit redesign.
+Catalogue of commits on `flaxandteal/arches` branch `docker/8.1` that are absent from upstream `archesproject/arches` branch `dev/8.1.x`. Used to decide which divergences become maintained patches in [../cli/src/arches_toolkit/_data/patches/](../cli/src/arches_toolkit/_data/patches/) and which are obsoleted by the toolkit redesign.
 
 ## Bucket definitions
 
@@ -55,7 +55,7 @@ This validates the redesign premise: the F&T divergence was almost entirely inci
 
 ## Action items
 
-- Patches under [../docker/base/patches/](../docker/base/patches/): **none from this inventory**. The first patch ([`0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch`](../docker/base/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch)) was authored fresh in Stage 6 rather than carried over.
+- Patches under [../cli/src/arches_toolkit/_data/patches/](../cli/src/arches_toolkit/_data/patches/): **none from this inventory**. The first patch ([`0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch`](../cli/src/arches_toolkit/_data/patches/0001-frontend_configuration-honour-ARCHES_FRONTEND_CONFIG.patch)) was authored fresh in Stage 6 rather than carried over.
 - Upstream PR queue: `3522f63d0` — `archesproject/arches` `arches/install/init-unix.sql`; plus the Stage 6 env-var patch once it's ready for submission.
 - Fork retirement: once the toolkit ships and the pilot project (Stage 7) migrates, `flaxandteal/arches` `docker/8.1` can be archived.
 

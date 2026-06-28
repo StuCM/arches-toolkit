@@ -14,7 +14,7 @@ from rich.table import Table
 
 from .. import patches as patches_mod
 from .. import patches_manifest
-from ..patches import PATCHES_RELDIR, PatchHeader, PatchHeaderError
+from ..patches import PatchHeader, PatchHeaderError
 
 app = typer.Typer(no_args_is_help=True, help="Inspect and maintain Arches patch series")
 
@@ -60,7 +60,7 @@ def _sanitise_patch_name(name: str) -> str:
 def _resolve_patches_dir(explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit
-    return Path.cwd() / PATCHES_RELDIR
+    return patches_mod.shipped_patches_dir()
 
 
 def _ensure_patches_dir(path: Path) -> None:
@@ -166,7 +166,7 @@ def disable(
 def renew(
     patch_name: str = typer.Argument(..., help="Patch filename (e.g. 0001-foo.patch)"),
     patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+        None, "--patches-dir", help="Override patches directory (default: the shipped series)"
     ),
 ) -> None:
     """Bump ``Last-reviewed:`` in the named patch to today."""
@@ -186,7 +186,7 @@ def renew(
 @app.command("status")
 def status(
     patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+        None, "--patches-dir", help="Override patches directory (default: the shipped series)"
     ),
 ) -> None:
     """Like ``list``, but query the GitHub API for upstream PR state."""
@@ -301,7 +301,7 @@ def finish(
         help="Leave the scratch clone in place (default) or delete it",
     ),
 ) -> None:
-    """Export the topmost commit in the scratch as docker/base/patches/NNNN-<name>.patch."""
+    """Export the topmost commit in the scratch as NNNN-<name>.patch in the series."""
     if shutil.which("git") is None:
         raise typer.BadParameter("git not found on PATH")
     name = _sanitise_patch_name(name)
@@ -329,12 +329,10 @@ def finish(
             f"{scratch}: no new commits since `patch start` — commit first, then re-run"
         )
 
-    if patches_dir is not None:
-        pdir = patches_dir
-    elif toolkit_root:
-        pdir = Path(toolkit_root) / PATCHES_RELDIR
-    else:
-        pdir = _resolve_patches_dir(None)
+    # The series lives in the package tree; shipped_patches_dir() resolves it
+    # in an editable checkout regardless of cwd. (toolkit_root is still read
+    # from the marker for context but no longer needed to locate the series.)
+    pdir = patches_dir if patches_dir is not None else _resolve_patches_dir(None)
     pdir.mkdir(parents=True, exist_ok=True)
 
     # Remove any prior patch with the same name so we don't collect duplicates.

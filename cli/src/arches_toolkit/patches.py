@@ -1,4 +1,4 @@
-"""Parser for ``docker/base/patches/*.patch`` headers.
+"""Parser for the Arches patch series (``arches_toolkit/_data/patches/*.patch``).
 
 Patch files are ``git format-patch`` output. The trailing block of the commit
 message (between ``Subject:`` and the first ``---`` line) carries three
@@ -25,26 +25,22 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-PATCHES_RELDIR = Path("docker/base/patches")
+# Path to the patch series relative to the repo root — used by repo-level
+# tooling (e.g. the patch-health workflow) and the dump-json fallback.
+PATCHES_RELDIR = Path("cli/src/arches_toolkit/_data/patches")
 
 
 def shipped_patches_dir() -> Path:
-    """Directory of the toolkit's patch series, resolvable from an *installed* CLI.
+    """Directory of the toolkit's patch series.
 
-    Prefers the copy shipped as wheel package data (``arches_toolkit/_data/
-    patches``, force-included at build). Falls back to the repo source
-    (``docker/base/patches``) for editable / in-tree installs where the
-    package-data copy doesn't exist. The repo remains the single source of
-    truth; the wheel copy is build-time-derived.
+    The series lives under the package (``arches_toolkit/_data/patches``), so
+    this resolves correctly for both editable installs (the dir is in the
+    source tree) and built wheels (normal package data) — no special build
+    config and no fallback needed.
     """
     from importlib import resources
 
-    pkg = Path(str(resources.files("arches_toolkit._data").joinpath("patches")))
-    if pkg.is_dir():
-        return pkg
-    # Editable/in-tree fallback: cli/src/arches_toolkit/patches.py →
-    # parents[3] is the repo root.
-    return Path(__file__).resolve().parents[3] / PATCHES_RELDIR
+    return Path(str(resources.files("arches_toolkit._data").joinpath("patches")))
 
 # Header field regexes — anchored to line start, case-insensitive on the key.
 _HEADER_RE = {
@@ -238,7 +234,7 @@ def _main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] != "dump-json":
         print("usage: python -m arches_toolkit.patches dump-json [PATCHES_DIR]", file=sys.stderr)
         return 2
-    patches_dir = Path(argv[2]) if len(argv) >= 3 else PATCHES_RELDIR
+    patches_dir = Path(argv[2]) if len(argv) >= 3 else shipped_patches_dir()
     headers = parse_all(patches_dir)
     json.dump(headers_to_jsonable(headers), sys.stdout, indent=2)
     sys.stdout.write("\n")

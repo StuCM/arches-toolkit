@@ -351,9 +351,9 @@ start, and right now it looks broken even though it isn't.
 
 The `ARCHES_SRC` overlay (`compose.arches-src.yaml`) bind-mounts a host
 clone of arches over `/opt/arches`. Because bind mounts replace directory
-contents, the patches `docker/base/patches/*.patch` applied at base-image
-build time are no longer visible at runtime — Python imports the host
-clone's files, not the patched copy.
+contents, the patches `cli/src/arches_toolkit/_data/patches/*.patch` applied
+at base-image build time are no longer visible at runtime — Python imports
+the host clone's files, not the patched copy.
 
 **Why it matters.** Anyone using ARCHES_SRC to live-edit arches loses any
 toolkit patch that touches code they're editing. Patches authored *for*
@@ -365,7 +365,7 @@ you observe a setting being ignored.
 
 ```sh
 cd $ARCHES_SRC
-git am /path/to/arches-toolkit/docker/base/patches/*.patch
+git am /path/to/arches-toolkit/cli/src/arches_toolkit/_data/patches/*.patch
 ```
 
 Brittle: needs to be redone on every rebase, and `git am` fails noisily
@@ -743,10 +743,11 @@ can try a patch before it's shared, and promote it into the shared series.
 
 **Two layers (mirrors develop-apps):**
 
-- **Toolkit series** — patches shipped with the CLI (`docker/base/patches`,
-  now force-included into the wheel as `arches_toolkit/_data/patches`; the
-  repo stays the single source of truth, the base image still consumes it
-  directly). The baseline, baked into the base image. Enabled by default.
+- **Toolkit series** — patches shipped with the CLI. They live in the package
+  at `cli/src/arches_toolkit/_data/patches/`, so they ship as normal package
+  data (no force-include); the base image build reads them via a buildx named
+  build context (`--build-context patches=…` + `COPY --from=patches`). The
+  baseline, baked into the base image. Enabled by default.
 - **Local overlay** — `*.patch` files in the project's `patches/` directory.
   Enabled by default. *Promote* a local patch into the toolkit series to
   share it — **push to share, not to use**, the same contract as
@@ -787,8 +788,8 @@ intent; the appliers consume it as they land.
 - `patch add <file>` — register a local `.patch` into `./patches/` (CLI, so
   no manual file drop).
 - `patch promote <id>` — graduate a local patch into the toolkit series
-  (`docker/base/patches`, renumber + headers) → a toolkit PR → baked into
-  the next base image. Overlaps the existing `patch finish`.
+  (`cli/src/arches_toolkit/_data/patches`, renumber + headers) → a toolkit
+  PR → baked into the next base image. Overlaps the existing `patch finish`.
 
 ---
 

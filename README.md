@@ -118,7 +118,7 @@ reference.
 | **Your project** | `pyproject.toml`, `apps.yaml`, `.env`, source code, `settings.py`, `webpack/`, `package.json` — *that's it*. No `Dockerfile`, no compose files. |
 | **arches-toolkit repo** (`cli/src/arches_toolkit/_data/`) | Project `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `init.sql`, `compose.arches-src.yaml` — shipped as Python package data |
 | **arches-toolkit repo** (`docker/base/`) | `Dockerfile` that builds the base image from upstream Arches + patches |
-| **arches-toolkit repo** (`docker/base/patches/`) | `*.patch` files applied via `git am` during base image build. Current: one patch parameterising the `frontend_configuration` path. |
+| **arches-toolkit repo** (`cli/src/arches_toolkit/_data/patches/`) | `*.patch` files applied via `git am` during base image build. Current: one patch parameterising the `frontend_configuration` path. |
 
 ## Patches against Arches core
 
