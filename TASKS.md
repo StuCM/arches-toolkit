@@ -838,6 +838,93 @@ freedoms without the copies.
 
 ---
 
+## Design proposal: project service topology + run mode
+
+**Status:** designed 2026-06-27, not implemented. Overlaps the
+native-compose and recipe-pinning proposals above — same `.env`-managed,
+package-only, version-aware machinery. Sequence after the native-compose
+refactor (this builds on `COMPOSE_PROJECT_NAME` / `arches-toolkit compose`).
+
+**The asks.** (1) Run a project *without* some bundled services
+(cantaloupe today). (2) *Swap* a service for an external/different one
+(Elasticsearch is expected to be removed or replaced upstream). (3) Switch
+a project into *production mode locally* to debug it as it will actually
+run.
+
+**Today: none of these are first-class.** No compose `profiles:` anywhere,
+so every `up` brings the whole stack. `dev` hardcodes `compose.yaml +
+compose.dev.yaml`, expects all four readiness milestones (infra → init →
+webpack → web), and the arches services carry hard `depends_on:
+{condition: service_healthy}` edges to db/es/rabbitmq. `settings.py` reads
+`ESHOST` / `RABBITMQ_URL` / `CANTALOUPE_HTTP_ENDPOINT` from env (so
+*pointing* at an external service already works), but nothing stops the
+bundled container from also running, and the depends_on gate still waits
+on the local copy. `compose.extras.yaml` only *adds* services.
+
+**Design.**
+
+1. **Optional services via compose profiles + a managed `COMPOSE_PROFILES`
+   line in `.env`.** Tag optional services with `profiles:`; a project
+   declares what it runs in one toolkit-managed `.env` line (same pattern
+   as the proposed `COMPOSE_PROJECT_NAME` — no files copied into the tree).
+   - *Cantaloupe is the clean first toggle* — genuinely optional (IIIF
+     image server), nothing else hard-depends on it. `profiles: [iiif]`
+     (or `[cantaloupe]`), off by default or on by default per project.
+   - A toggle command (`arches-toolkit service enable/disable <name>`, or
+     folding into a project-config edit) maintains the `COMPOSE_PROFILES`
+     line.
+
+2. **Swappable backends, not just optional services — built for ES going
+   away.** Treat the search backend (and by extension the broker/IIIF
+   endpoints) as a *slot*, not a fixed service. A project either runs the
+   bundled service (profile on) or points `ESHOST`/etc. at an external one
+   (profile off + env). Two structural requirements this forces:
+   - **`depends_on` must be profile-aware.** Compose only starts a service
+     in an active profile; a hard `depends_on` on a profiled-out service
+     errors. The arches services' dependency edges to es/rabbitmq must be
+     gated the same way (or moved to a healthcheck-on-connect model) so a
+     project that runs ES externally — or not at all — still boots.
+   - **Search backend is version-conditional ⇒ this belongs with the
+     version-keyed recipe selection above.** When upstream Arches drops or
+     replaces Elasticsearch, that's a different *topology*, not just a flag:
+     a different compose overlay (no `elasticsearch` service, different
+     init `es setup_indexes` step) selected by the project's arches
+     version. This is exactly the "version-conditional behaviour" the
+     recipe-pinning note said to design for before it scatters — the ES
+     removal is the concrete forcing case. Express it as a version-scoped
+     compose overlay (`compose.arches-<ver>.yaml`) resolved from the
+     declared version, *not* an `if version` branch in the base compose.
+
+3. **Run-mode selector for prod-debug.** `arches-toolkit dev --mode prod`
+   (or a sibling `up --prod`) selects overlays: dev =
+   `compose.yaml + compose.dev.yaml`; prod = `compose.yaml` alone (gunicorn,
+   prod Dockerfile target, no bind mount / webpack / debugpy), with a
+   readiness poll that drops the webpack milestone. Beyond debugging, this
+   is the local exercise of the `prod`/`nginx` targets that the Phase 2
+   Helm rework needs validated anyway.
+
+**Caveats / non-goals.**
+- ES and RabbitMQ are not trivially "off" *today* — search and the celery
+  broker depend on them. Profile-gating them means "run external instead of
+  local," not "run nothing," until the upstream ES removal lands a topology
+  that genuinely doesn't need a search container.
+- Keep the package-only invariant: profiles and mode are selected by
+  toolkit-managed `.env` config + version resolution, never by copying
+  compose files into the project.
+
+**Ties to other proposals.** `COMPOSE_PROFILES` sits beside
+`COMPOSE_PROJECT_NAME` (native-compose); version-scoped service overlays
+are the same resolver as the Dockerfile/compose cascade (recipe-pinning);
+`arches-toolkit compose <args>` is the manual `stop <svc>`/`start <svc>`
+escape hatch under the declarative profile config.
+
+**Rejected: per-service on/off by passing service names to `dev`.** Fights
+the readiness poll and the depends_on gates, and encodes the choice in a
+shell invocation instead of committed project config. Profiles make "what
+this project runs" declarative and shareable.
+
+---
+
 ## Smoke test outcome (2026-06-11, arches dev/8.2.x)
 
 Full lifecycle exercised on a fresh project against an 8.2 base image:
