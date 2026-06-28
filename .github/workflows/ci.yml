@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: CLI tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Run test suite
+        working-directory: cli
+        run: uv run --extra dev python -m pytest -q
+
+  yaml:
+    name: YAML lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install yamllint==1.35.1
+      - run: yamllint .
+
+  markdown:
+    name: Markdown lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Pinned so a new markdownlint release can't turn the gate red on its own.
+      - run: npx --yes markdownlint-cli2@0.18.1 "**/*.md" "#cli/.venv" "#**/node_modules"
+
+  dockerfile:
+    name: Dockerfile lint (hadolint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint project Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: cli/src/arches_toolkit/_data/Dockerfile
+          failure-threshold: error
+      - name: Lint base image Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/base/Dockerfile
+          failure-threshold: error

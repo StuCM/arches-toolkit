@@ -129,7 +129,7 @@ services:
   cantaloupe:
     ports:
       - "8182:8182"
-      
+
   web:
     <<: *arches-dev
     command:
