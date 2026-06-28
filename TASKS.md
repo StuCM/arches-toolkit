@@ -595,11 +595,12 @@ the project root. Added `arches-toolkit compose <args…>` — the generic
 escape hatch that runs any subcommand (incl. `up`/`build`/`config`) against
 the packaged `-f` stack + interpolation env. Compose plumbing centralised
 in `cli/src/arches_toolkit/_compose.py` (shared by `dev` and the wrappers);
-the wrappers now also correctly include the arches-src overlay (latent bug
-— `build`/`restart` etc. previously omitted it). **Deferred:** deleting the
-named wrappers (`logs`/`ps`/`exec`/`restart`/`down`/`build`) — kept as daily
-sugar; they're now thin shims over the shared base, and removal is a
-separable cleanup. `dev` and `manage` stay as designed.
+the wrappers' replacement (`install.py`) was routed through `_compose` too
+(it called the now-removed `_compose_base_argv`/`_compose_env`). The named
+wrappers (`logs`/`ps`/`exec`/`restart`/`down`/`build`) are **removed** — the
+collapse the design called for: `arches-toolkit compose` is the single
+escape hatch, label-based ops run as plain `docker compose …` via
+`COMPOSE_PROJECT_NAME`, and `dev`/`manage` stay as designed.
 
 Verification note: the daemon wasn't available in the build env, so the
 "`docker compose ps` reads `COMPOSE_PROJECT_NAME` from `.env` with no config

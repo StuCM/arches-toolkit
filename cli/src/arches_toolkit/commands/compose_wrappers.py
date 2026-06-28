@@ -1,14 +1,16 @@
-"""``arches-toolkit`` wrappers around ``docker compose`` subcommands.
+"""``arches-toolkit`` entry points onto ``docker compose``.
 
 `compose` is the generic escape hatch — it runs any compose subcommand
 against the canonical packaged ``-f`` stack + interpolation env, so commands
 that need the files (`up`, `build`, `config`) work without the project tree
-carrying them. The named wrappers (`logs`/`ps`/`exec`/`restart`/`down`/
-`build`/`manage`) are thin sugar over the same base.
+carrying them. `manage` is sugar for ``python manage.py …`` in the web
+container.
 
-Once ``COMPOSE_PROJECT_NAME`` is in the project ``.env`` (written by ``init``,
-self-healed here), the label-based subcommands also work as plain
-``docker compose ps/logs/exec/restart/down`` from the project root.
+The per-subcommand wrappers (`logs`/`ps`/`exec`/`restart`/`down`/`build`)
+were removed: once ``COMPOSE_PROJECT_NAME`` is in the project ``.env``
+(written by ``init``, self-healed here), the label-based subcommands work as
+plain ``docker compose ps/logs/exec/restart/down`` from the project root,
+and anything else goes through ``arches-toolkit compose``.
 """
 
 from __future__ import annotations
@@ -50,69 +52,11 @@ def compose(
     """Run any ``docker compose`` subcommand against the packaged stack.
 
     Everything after ``compose`` is passed through verbatim, e.g.
-    ``arches-toolkit compose up -d`` / ``arches-toolkit compose config``.
+    ``arches-toolkit compose up -d`` / ``arches-toolkit compose config`` /
+    ``arches-toolkit compose down -v``.
     """
     _require_project(project_root)
     _run_compose(project_root, ctx.args)
-
-
-def logs(
-    ctx: typer.Context,
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """Tail ``docker compose logs`` for the project."""
-    _require_project(project_root)
-    _run_compose(project_root, ["logs", *ctx.args])
-
-
-def ps(
-    ctx: typer.Context,
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """List project containers (``docker compose ps``)."""
-    _require_project(project_root)
-    _run_compose(project_root, ["ps", *ctx.args])
-
-
-def exec_(
-    ctx: typer.Context,
-    service: str = typer.Argument(..., help="Service to exec into"),
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """Exec a command in a running service (``docker compose exec SERVICE …``)."""
-    _require_project(project_root)
-    _run_compose(project_root, ["exec", service, *ctx.args])
-
-
-def restart(
-    ctx: typer.Context,
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """Restart services (``docker compose restart …``)."""
-    _require_project(project_root)
-    _run_compose(project_root, ["restart", *ctx.args])
-
-
-def down(
-    ctx: typer.Context,
-    volumes: bool = typer.Option(
-        False, "--volumes", "-v", help="Remove named volumes too (destructive)"
-    ),
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """Stop and remove project containers (``docker compose down``)."""
-    _require_project(project_root)
-    extra = ["-v"] if volumes else []
-    _run_compose(project_root, ["down", *extra, *ctx.args])
-
-
-def build(
-    ctx: typer.Context,
-    project_root: Path = typer.Option(Path("."), "--project-root"),
-) -> None:
-    """Build project images (``docker compose build``). No services start."""
-    _require_project(project_root)
-    _run_compose(project_root, ["build", *ctx.args])
 
 
 def manage(

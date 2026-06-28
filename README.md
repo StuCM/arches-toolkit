@@ -30,35 +30,37 @@ arches-toolkit dev --build           # first run: builds project image, starts s
                                      # (watch: http://localhost:8000)
 ```
 
-`/settings/` and `/search/` work straight after the first `dev`. To seed test users (admin/admin etc.), run `arches-toolkit setup-db --dev-users` — note this is destructive (full DB rebuild). Stop with `arches-toolkit down`, start again with `arches-toolkit dev` (no `--build` — work is persisted in volumes).
+`/settings/` and `/search/` work straight after the first `dev`. To seed test users (admin/admin etc.), run `arches-toolkit setup-db --dev-users` — note this is destructive (full DB rebuild). Stop with `docker compose down`, start again with `arches-toolkit dev` (no `--build` — work is persisted in volumes).
 
 ### Daily development
 
 ```bash
 arches-toolkit dev                   # bring the stack up (watches files)
-arches-toolkit logs -f web           # tail a service
-arches-toolkit ps                    # what's running
-arches-toolkit exec web bash         # shell into a container
-arches-toolkit restart web           # restart one service (~2s; no rebuild)
-arches-toolkit down                  # stop everything (preserves volumes)
-arches-toolkit down -v               # stop and wipe volumes (destructive)
-arches-toolkit compose <args…>       # any docker compose subcommand (config, up, build, …)
+docker compose logs -f web           # tail a service
+docker compose ps                    # what's running
+docker compose exec web bash         # shell into a container
+docker compose restart web           # restart one service (~2s; no rebuild)
+docker compose down                  # stop everything (preserves volumes)
+docker compose down -v               # stop and wipe volumes (destructive)
+arches-toolkit compose <args…>       # any subcommand against the packaged stack (up, build, config, …)
 ```
 
 `init` writes a `COMPOSE_PROJECT_NAME` to `.env`, so the running-container
-commands also work as **plain `docker compose`** from the project root —
-`docker compose ps`, `docker compose logs -f web`, `docker compose exec web bash`
-all resolve this project's stack by label, no `-f` files needed. Commands that
-need the packaged compose files (`up`/`build`/`config`) go through
-`arches-toolkit compose` (or `dev`), which supplies them.
+commands work as **plain `docker compose`** from the project root — `ps`,
+`logs -f web`, `exec web bash`, `restart web`, `down` all resolve this
+project's stack by label, no `-f` files needed. Commands that need the
+packaged compose files (`up`/`build`/`config`) go through `arches-toolkit
+compose` (or `dev`), which supplies them. There are no per-subcommand CLI
+wrappers — `arches-toolkit compose` is the single escape hatch, and `manage`
+is kept as sugar for `python manage.py …` in the web container.
 
 ### Editing Python or frontend code
 
 - **`.py` files**: Django runserver autoreloads (~2s).
 - **`.vue` / `.ts` / `.scss`**: webpack devserver HMR (~200ms).
-- **Python deps**: edit `pyproject.toml` then `arches-toolkit exec web uv sync` (~2s).
-- **npm deps**: edit `package.json` then `arches-toolkit exec webpack npm install` (~10s).
-- **Migrations**: `arches-toolkit exec web python manage.py makemigrations && migrate`.
+- **Python deps**: edit `pyproject.toml` then `docker compose exec web uv sync` (~2s).
+- **npm deps**: edit `package.json` then `docker compose exec webpack npm install` (~10s).
+- **Migrations**: `arches-toolkit manage makemigrations && arches-toolkit manage migrate`.
 
 No image rebuilds in any of the above.
 
@@ -153,7 +155,7 @@ ARCHES_TOOLKIT_TAG=latest-arches-dev-8.1.x          # floating: follows dev/8.1.
 ARCHES_TOOLKIT_TAG=<toolkit-sha>-arches-stable-8.1.0  # pinned: reproducible
 ```
 
-Then `arches-toolkit down && arches-toolkit dev --build` to rebuild your project image against the new base. If you're also using `ARCHES_SRC`, check out the matching ref in your clone too (see [docs/local-arches-src.md#version-alignment](docs/local-arches-src.md#version-alignment)).
+Then `docker compose down && arches-toolkit dev --build` to rebuild your project image against the new base. If you're also using `ARCHES_SRC`, check out the matching ref in your clone too (see [docs/local-arches-src.md#version-alignment](docs/local-arches-src.md#version-alignment)).
 
 **To build against a ref the CI hasn't published** — e.g. a specific commit SHA, a feature branch, or a fork — build the base image locally. `ARCHES_REF` accepts branches, tags, and commit SHAs:
 
@@ -191,7 +193,7 @@ See [docker/base/README.md](docker/base/README.md) for the full tag scheme and C
 | `ARCHES_TOOLKIT_INIT_SQL` | Absolute path to `init.sql` inside the installed CLI |
 | `ARCHES_SRC` (optional) | Host path to a local Arches clone to bind-mount over `/opt/arches` |
 
-The **label-based** commands (`ps`, `logs`, `exec`, `restart`, `down`) need none of these — they resolve the stack by the `COMPOSE_PROJECT_NAME` written to `.env`, so plain `docker compose ps` / `logs -f web` work from the project root. The **file-needing** commands (`up`, `build`, `config`) need the packaged files + the vars above; run them via `arches-toolkit compose <args…>` (or `dev`), which sets everything for you. The named wrappers (`arches-toolkit logs|ps|exec|restart|down|build`) remain as sugar over the same base.
+The **label-based** commands (`ps`, `logs`, `exec`, `restart`, `down`) need none of these — they resolve the stack by the `COMPOSE_PROJECT_NAME` written to `.env`, so plain `docker compose ps` / `logs -f web` work from the project root. The **file-needing** commands (`up`, `build`, `config`) need the packaged files + the vars above; run them via `arches-toolkit compose <args…>` (or `dev`), which sets everything for you.
 
 ## Command reference
 
@@ -204,13 +206,8 @@ The **label-based** commands (`ps`, `logs`, `exec`, `restart`, `down`) need none
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml`, INSTALLED_APPS block + managed npm entries (`npm: true` apps) from `apps.yaml` |
 | `arches-toolkit compose <args…>` | Run any `docker compose` subcommand against the packaged stack (`up`, `build`, `config`, …) |
-| `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper (or plain `docker compose logs`) |
-| `arches-toolkit ps` | `docker compose ps` wrapper |
-| `arches-toolkit exec <service> <cmd…>` | `docker compose exec` wrapper |
-| `arches-toolkit restart [service…]` | `docker compose restart` wrapper |
-| `arches-toolkit down [-v]` | `docker compose down` wrapper (`-v` wipes volumes) |
-| `arches-toolkit build` | `docker compose build` (no start) |
 | `arches-toolkit manage <cmd…>` | Run `python manage.py <cmd…>` inside the web container |
+| `docker compose <ps\|logs\|exec\|restart\|down> …` | Native — resolve the stack by `COMPOSE_PROJECT_NAME` from the project root (no CLI wrapper needed) |
 | `arches-toolkit patch start/finish/list/renew/status` | Maintain the Arches patch series |
 
 ## What's left before this replaces the old toolkit

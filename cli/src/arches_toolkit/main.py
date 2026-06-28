@@ -89,15 +89,11 @@ app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(dev_cmd.dev)
 
-# compose: generic escape hatch + named sugar (logs / ps / exec / restart / down / build)
+# compose: one generic escape hatch for every docker compose subcommand, plus
+# `manage` sugar. Label-based commands (ps/logs/exec/restart/down) also work as
+# plain `docker compose …` from the project root via COMPOSE_PROJECT_NAME.
 _passthrough = {"allow_extra_args": True, "ignore_unknown_options": True}
 app.command("compose", help="Run any `docker compose` subcommand against the packaged stack", context_settings=_passthrough)(compose_wrappers.compose)
-app.command("logs", help="Tail `docker compose logs` for the project", context_settings=_passthrough)(compose_wrappers.logs)
-app.command("ps", help="List project containers (`docker compose ps`)", context_settings=_passthrough)(compose_wrappers.ps)
-app.command("exec", help="Exec a command in a running service", context_settings=_passthrough)(compose_wrappers.exec_)
-app.command("restart", help="Restart services (`docker compose restart`)", context_settings=_passthrough)(compose_wrappers.restart)
-app.command("down", help="Stop and remove project containers", context_settings=_passthrough)(compose_wrappers.down)
-app.command("build", help="Build project images without starting", context_settings=_passthrough)(compose_wrappers.build)
 app.command("manage", help="Run `python manage.py …` inside the web container", context_settings=_passthrough)(compose_wrappers.manage)
 
 # create group.

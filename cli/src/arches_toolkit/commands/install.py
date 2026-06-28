@@ -31,6 +31,7 @@ from pathlib import Path
 
 import typer
 
+from .. import _compose
 from .. import _output
 from .. import apps_manifest as manifest_mod
 from .._clone import develop_repo_dirname
@@ -44,11 +45,11 @@ def _docker_or_die() -> None:
 
 def _web_is_running(project_root: Path) -> bool:
     """Return True iff the web service has at least one running container."""
-    argv = cw._compose_base_argv(project_root) + [
+    argv = _compose.base_argv(project_root) + [
         "ps", "--status", "running", "--services",
     ]
     result = subprocess.run(
-        argv, env=cw._compose_env(),
+        argv, env=_compose.compose_env(project_root),
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -87,14 +88,14 @@ def _build_install_script(
 
 
 def _run_install(project_root: Path, script: str, *, web_up: bool) -> None:
-    base = cw._compose_base_argv(project_root)
+    base = _compose.base_argv(project_root)
     if web_up:
         argv = base + ["exec", "-T", "web", "sh", "-euc", script]
     else:
         argv = base + ["run", "--rm", "--entrypoint", "sh", "web", "-euc", script]
     _output.stage("Installing project + apps into the venv")
     _output.cmd(argv)
-    completed = subprocess.run(argv, env=cw._compose_env())
+    completed = subprocess.run(argv, env=_compose.compose_env(project_root))
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
 
@@ -150,12 +151,12 @@ def _build_npm_script(overlay_specs: list[str], verbose: bool = False) -> str:
 def _run_npm_install(project_root: Path, script: str) -> None:
     # --user app: the webpack service starts as root (to chown the volume)
     # but node_modules must stay app-owned.
-    argv = cw._compose_base_argv(project_root) + [
+    argv = _compose.base_argv(project_root) + [
         "exec", "-T", "--user", "app", "webpack", "sh", "-euc", script,
     ]
     _output.stage("Installing frontend dependencies (npm)")
     _output.cmd(argv)
-    completed = subprocess.run(argv, env=cw._compose_env())
+    completed = subprocess.run(argv, env=_compose.compose_env(project_root))
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
 
@@ -179,12 +180,12 @@ def _regen_frontend_configuration(project_root: Path) -> None:
     compiling stale paths until this runs and webpack restarts on it.
     Failure is a warning, not fatal: the stack still works for backend code.
     """
-    argv = cw._compose_base_argv(project_root) + [
+    argv = _compose.base_argv(project_root) + [
         "exec", "-T", "web", "python", "-c", FRONTEND_REGEN_SNIPPET,
     ]
     _output.stage("Regenerating frontend configuration")
     _output.cmd(argv)
-    completed = subprocess.run(argv, env=cw._compose_env())
+    completed = subprocess.run(argv, env=_compose.compose_env(project_root))
     if completed.returncode != 0:
         typer.echo(
             "warning: frontend_configuration regen failed — webpack may compile "
@@ -198,12 +199,12 @@ def _run_migrate(project_root: Path) -> None:
     Newly installed apps ship migrations that nothing else applies on a
     running stack (init only migrates on cold start), so install owns it.
     """
-    argv = cw._compose_base_argv(project_root) + [
+    argv = _compose.base_argv(project_root) + [
         "exec", "-T", "web", "python", "manage.py", "migrate", "--noinput",
     ]
     _output.stage("Applying database migrations")
     _output.cmd(argv)
-    completed = subprocess.run(argv, env=cw._compose_env())
+    completed = subprocess.run(argv, env=_compose.compose_env(project_root))
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
 
@@ -213,12 +214,12 @@ def _restart_services(project_root: Path) -> None:
     # the freshly regenerated app paths only take effect on a process restart.
     # Cheap beyond the inherent first compile — the startup stamp check skips
     # npm install when package.json is unchanged.
-    argv = cw._compose_base_argv(project_root) + [
+    argv = _compose.base_argv(project_root) + [
         "restart", "web", "worker", "api", "webpack",
     ]
     _output.stage("Restarting services (web, worker, api, webpack)")
     _output.cmd(argv)
-    subprocess.run(argv, env=cw._compose_env())
+    subprocess.run(argv, env=_compose.compose_env(project_root))
 
 
 def install(

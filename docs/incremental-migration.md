@@ -103,7 +103,7 @@ gitignored and not in its build context anyway). The toolkit ignores
 
 When you're ready to move CI to the toolkit Dockerfile:
 
-1. Either install `arches-toolkit` in CI and call `arches-toolkit build`, or add
+1. Either install `arches-toolkit` in CI and call `arches-toolkit compose build`, or add
    a slim project-level Dockerfile at the repo root:
 
    ```dockerfile
@@ -114,7 +114,7 @@ When you're ready to move CI to the toolkit Dockerfile:
    CMD ["gunicorn", "myproject.wsgi:application", "--bind", "0.0.0.0:8000"]
    ```
 
-2. Update your CI to use the new Dockerfile (or the `arches-toolkit build` call).
+2. Update your CI to use the new Dockerfile (or the `arches-toolkit compose build` call).
 3. Verify that image boots in staging before swapping prod traffic.
 4. Once you're on the toolkit in CI too, `rm -rf docker/ Makefile` — the dual
    state is no longer needed.

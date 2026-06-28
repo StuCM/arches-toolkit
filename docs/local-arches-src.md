@@ -90,7 +90,7 @@ A named-volume bind mount requires **container recreation** — a `restart` alon
 doesn't pick it up.
 
 ```bash
-arches-toolkit down      # stop containers, keep volumes (db, venv, etc.)
+docker compose down      # stop containers, keep volumes (db, venv, etc.)
 arches-toolkit dev       # come back up with the overlay active
 ```
 
@@ -99,25 +99,25 @@ arches-toolkit dev       # come back up with the overlay active
 ```bash
 # /opt/arches should show your clone's contents (repo root — pyproject.toml,
 # inner arches/ package directory, etc.)
-arches-toolkit exec web ls /opt/arches
+docker compose exec web ls /opt/arches
 
 # Python imports the editable install, which points at /opt/arches:
-arches-toolkit exec web python -c "import arches; print(arches.__file__)"
+docker compose exec web python -c "import arches; print(arches.__file__)"
 # expected: /opt/arches/arches/__init__.py
 # If you see /venv/lib/.../site-packages/arches/__init__.py, the editable
 # install has been clobbered — see troubleshooting.
 
 # webpack sees the same source via the same path (webpack's ROOT_DIR reads
 # from /opt/arches through the editable install pointer):
-arches-toolkit exec webpack ls /opt/arches
+docker compose exec webpack ls /opt/arches
 ```
 
 ## Step 5: edit and observe
 
 - **Python changes** (views, models, management commands): Django autoreload
-  picks them up. Watch `arches-toolkit logs web`.
+  picks them up. Watch `docker compose logs web`.
 - **JS/Vue changes**: webpack-dev-server rebuilds automatically. Watch
-  `arches-toolkit logs webpack` for "Compiled successfully". Hard-refresh the
+  `docker compose logs webpack` for "Compiled successfully". Hard-refresh the
   browser (Ctrl-Shift-R / Cmd-Shift-R) to bypass cache.
 
 ## Version alignment
@@ -132,7 +132,7 @@ Quick alignment check:
 
 ```bash
 # What ref was the base image built from?
-arches-toolkit exec web env | grep ARCHES_REF
+docker compose exec web env | grep ARCHES_REF
 
 # What ref is your local clone on?
 cd /path/to/your-clone
@@ -172,7 +172,7 @@ ARCHES_TOOLKIT_TAG=latest-arches-stable-8.1.0
 Then rebuild your project image:
 
 ```bash
-arches-toolkit down
+docker compose down
 docker volume rm <project>_venv   # discard the old venv
 arches-toolkit dev --build
 ```
@@ -185,9 +185,9 @@ Volume additions require **container recreation**, not a restart. If you set
 `ARCHES_SRC` while the stack was already up, the overlay didn't apply.
 
 ```bash
-arches-toolkit down
+docker compose down
 arches-toolkit dev
-arches-toolkit exec web ls /opt/arches
+docker compose exec web ls /opt/arches
 # should show your clone's files
 ```
 
@@ -233,7 +233,7 @@ Three common causes:
    rebuilds by default.
 3. **webpack watcher didn't propagate through the bind mount.** Rare on
    Linux, more common on macOS. Force-restart webpack:
-   `arches-toolkit restart webpack`. Container state keeps the mount, but
+   `docker compose restart webpack`. Container state keeps the mount, but
    webpack rebuilds the watch tree from scratch.
 
 ### Warnings about compose variables (`$STAMP`, `$PROBE`, etc.)
@@ -245,7 +245,7 @@ version of the toolkit that has them fixed, pull the latest.
 ## Turning it off
 
 Just remove `ARCHES_SRC` from `.env` (or `unset ARCHES_SRC` in your shell),
-then `arches-toolkit down && arches-toolkit dev`. Containers come back up
+then `docker compose down && arches-toolkit dev`. Containers come back up
 without the overlay; `/opt/arches` reverts to the base image's pre-built
 source.
 
