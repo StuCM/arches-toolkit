@@ -691,6 +691,34 @@ later prioritisation.
   multiple Arches instances (e.g. Catalina + Quartz + vanilla 8.1) on one
   machine without docker-name clashes. The `arches-toolkit list` command
   (landed) is a partial precedent.
+- **Interactive prompts via `questionary` (nice-to-have).** Add space-to-
+  toggle / arrow-key pickers for the few selection moments, on top of the
+  existing flags. typer/Click can't do this (only plain prompts/confirms);
+  `rich` is output-only. `questionary` (thin layer over `prompt_toolkit`) is
+  the right-sized pick — a full TUI framework (`Textual`) is overkill for a
+  batch CLI like this. Candidate use-cases, strongest first:
+  - `init` wizard (`questionary.form()`): project name (validated), package,
+    base image / arches version (`select`), optional services (`checkbox`).
+  - `select` for pick-one: base-image tag, `switch-mode <app>` + mode,
+    `create` kind / template version.
+  - `checkbox` for multi-select: patch toggles (pre-checked from the enabled
+    state, write back to `patches.yaml`), optional services, app selection.
+  - `path` (with completion + repo-root validation) for `ARCHES_SRC`.
+  - `confirm` for destructive ops (`down -v`, `setup-db --force`).
+  - extras: `autocomplete` (service name for exec/logs), inline validation
+    with re-prompt.
+
+  **Load-bearing rule — additive + TTY-aware.** A provided flag always wins
+  and suppresses its prompt; prompts fire only on a TTY; non-interactive /
+  `--no-input` / CI never prompts (uses flags + defaults, errors on a truly
+  missing required value, exactly as today). Interactive mode just gathers
+  the same values the flags carry and feeds the identical code path that
+  writes `.env` / `apps.yaml` / `patches.yaml` — nothing becomes
+  prompt-only, so scripts and CI keep working. This is why it can be added
+  any time without regressing the non-interactive workflow. One small dep
+  (`prompt_toolkit`); same ecosystem note: `Textual` (full TUI, by the
+  `rich` authors) remains an option *later* for an opt-in `arches-toolkit
+  tui` control center, but is not foundational and not needed for this.
 - **`generate-debug-config` for VS Code.** Cheap to produce; removes a
   documentation step; immediately useful with the debugpy port already
   exposed in `compose.dev.yaml`. Output a `.vscode/launch.json` stub.
