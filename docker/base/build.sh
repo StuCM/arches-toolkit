@@ -74,9 +74,14 @@ FLOATING_TAG="${REGISTRY}:latest-arches-${SANITISED_REF}"
 
 # ---- build command ---------------------------------------------------------
 
+# Patches live in the CLI package now; inject them as a named build context so
+# the Dockerfile can `COPY --from=patches` without bloating the build context.
+PATCHES_DIR="${REPO_ROOT}/cli/src/arches_toolkit/_data/patches"
+
 BUILD_ARGS=(
     buildx build
     --file "${SCRIPT_DIR}/Dockerfile"
+    --build-context "patches=${PATCHES_DIR}"
     --platform "${PLATFORM}"
     --build-arg "ARCHES_REPO=${ARCHES_REPO}"
     --build-arg "ARCHES_REF=${ARCHES_REF}"
@@ -101,8 +106,8 @@ else
     fi
 fi
 
-# Build context is the base/ directory (so patches/ resolves alongside the
-# Dockerfile).
+# Build context is the base/ directory; patches come in via the named
+# `patches` build context wired above.
 BUILD_ARGS+=( "${SCRIPT_DIR}" )
 
 # ---- go --------------------------------------------------------------------

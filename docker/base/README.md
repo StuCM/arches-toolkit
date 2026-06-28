@@ -8,7 +8,11 @@ Most devs don't need to touch this directory: the published image on GHCR is pul
 
 - [`Dockerfile`](Dockerfile) — multi-stage: clone upstream → apply patches → install via `uv`
 - [`build.sh`](build.sh) — wrapper around `docker buildx build` for local and CI use
-- [`patches/`](patches/) — `*.patch` files applied via `git am` at build time ([patches/README.md](patches/README.md))
+- The patch series lives in the CLI package at
+  [`../../cli/src/arches_toolkit/_data/patches/`](../../cli/src/arches_toolkit/_data/patches/)
+  (so it ships with the wheel); `build.sh` injects it into the build via a
+  buildx named context and the Dockerfile does `COPY --from=patches`. See
+  [its README](../../cli/src/arches_toolkit/_data/patches/README.md).
 
 ## Building locally
 
@@ -68,7 +72,7 @@ If you built locally and it's not on GHCR, either set `ARCHES_TOOLKIT_IMAGE=arch
 
 ## Patches
 
-See [patches/README.md](patches/README.md) for the patch format and [../../docs/fork-inventory.md](../../docs/fork-inventory.md) for why the current patch set is what it is.
+See [the patches README](../../cli/src/arches_toolkit/_data/patches/README.md) for the patch format and [../../docs/fork-inventory.md](../../docs/fork-inventory.md) for why the current patch set is what it is.
 
 ## See also
 

@@ -1,7 +1,7 @@
 name: patch-health
 
 # Monthly informational report on the state of patches under
-# docker/base/patches/. Reads the Upstream: and Last-reviewed: headers from
+# cli/src/arches_toolkit/_data/patches/. Reads the Upstream: and Last-reviewed: headers from
 # each patch, queries the GitHub API for the linked PR's state, and writes a
 # markdown table to the job summary.
 #
@@ -40,7 +40,7 @@ jobs:
         run: |
           set -uo pipefail   # NOT -e: we never want this job to fail.
 
-          PATCH_DIR="docker/base/patches"
+          PATCH_DIR="cli/src/arches_toolkit/_data/patches"
           SUMMARY="$GITHUB_STEP_SUMMARY"
 
           echo "# Patch health report"                >> "$SUMMARY"

@@ -22,7 +22,7 @@ Python package providing the `arches-toolkit` command. End-user docs live in the
 | `arches-toolkit manage <cmd…>` | Run `python manage.py <cmd…>` inside the web container |
 | `arches-toolkit patch start/finish/list/renew/status` | Maintain the Arches patch series |
 
-All commands are run from the **project root** (the directory containing `.env` / `apps.yaml`), with the exception of the `patch` subcommands, which are run from the **toolkit repo root** (the directory containing `docker/base/patches/`).
+All commands are run from the **project root** (the directory containing `.env` / `apps.yaml`), with the exception of the `patch` subcommands, which are run from the **toolkit repo root** (the directory containing `cli/src/arches_toolkit/_data/patches/`).
 
 Full command reference with flags: `arches-toolkit <command> --help`.
 

@@ -118,9 +118,31 @@ reference.
 | **Your project** | `pyproject.toml`, `apps.yaml`, `.env`, source code, `settings.py`, `webpack/`, `package.json` — *that's it*. No `Dockerfile`, no compose files. |
 | **arches-toolkit repo** (`cli/src/arches_toolkit/_data/`) | Project `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `init.sql`, `compose.arches-src.yaml` — shipped as Python package data |
 | **arches-toolkit repo** (`docker/base/`) | `Dockerfile` that builds the base image from upstream Arches + patches |
-| **arches-toolkit repo** (`docker/base/patches/`) | `*.patch` files applied via `git am` during base image build. Current: one patch parameterising the `frontend_configuration` path. |
+| **arches-toolkit repo** (`cli/src/arches_toolkit/_data/patches/`) | `*.patch` files applied via `git am` during base image build. Current: one patch parameterising the `frontend_configuration` path. |
 
 ## Patches against Arches core
+
+Patches come in two layers, mirroring apps: the **toolkit series** (shipped with
+the CLI, baked into the base image, enabled by default) and a **local overlay**
+(`*.patch` files in the project's `patches/` dir). Selection lives in
+`patches.yaml` and is managed by id/number/substring — no hand-editing:
+
+```bash
+arches-toolkit patch list                  # numbered table: id, source, on/off, subject, upstream
+arches-toolkit patch disable 1             # turn a patch off for this project (by number)
+arches-toolkit patch enable frontend       # turn it back on (by unique substring)
+arches-toolkit patch add ./my-fix.patch    # register a local patch (copies into ./patches/)
+arches-toolkit patch rm my-fix             # delete a local patch
+arches-toolkit patch promote my-fix        # graduate a local patch into the shipped toolkit series
+arches-toolkit patch status                # like list, plus GitHub PR state if GH_TOKEN set
+```
+
+`patch list` shows every patch with an `on` column; `enable`/`disable` record only
+deviations from "all enabled" in `patches.yaml` (no file means everything is on).
+Local patches live in `./patches/` and are managed with `add`/`rm`; `promote`
+moves one into the shared series (push to share, not to use).
+
+Authoring a new toolkit patch:
 
 ```bash
 arches-toolkit patch start my-fix          # clones arches into ~/.cache/arches-toolkit/patches/my-fix
@@ -128,10 +150,6 @@ cd ~/.cache/arches-toolkit/patches/my-fix  # edit files, commit, etc.
 # ... git commit -am "..." with Upstream/Last-reviewed/Reason in the message ...
 cd -
 arches-toolkit patch finish my-fix --reason "..." --upstream "none yet"
-
-arches-toolkit patch list                  # table of patches + last-reviewed
-arches-toolkit patch status                # same, plus GitHub PR state if GH_TOKEN set
-arches-toolkit patch renew my-fix          # bump Last-reviewed to today
 ```
 
 ## Changing the Arches base

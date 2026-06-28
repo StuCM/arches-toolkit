@@ -351,9 +351,9 @@ start, and right now it looks broken even though it isn't.
 
 The `ARCHES_SRC` overlay (`compose.arches-src.yaml`) bind-mounts a host
 clone of arches over `/opt/arches`. Because bind mounts replace directory
-contents, the patches `docker/base/patches/*.patch` applied at base-image
-build time are no longer visible at runtime — Python imports the host
-clone's files, not the patched copy.
+contents, the patches `cli/src/arches_toolkit/_data/patches/*.patch` applied
+at base-image build time are no longer visible at runtime — Python imports
+the host clone's files, not the patched copy.
 
 **Why it matters.** Anyone using ARCHES_SRC to live-edit arches loses any
 toolkit patch that touches code they're editing. Patches authored *for*
@@ -365,7 +365,7 @@ you observe a setting being ignored.
 
 ```sh
 cd $ARCHES_SRC
-git am /path/to/arches-toolkit/docker/base/patches/*.patch
+git am /path/to/arches-toolkit/cli/src/arches_toolkit/_data/patches/*.patch
 ```
 
 Brittle: needs to be redone on every rebase, and `git am` fails noisily
@@ -852,6 +852,89 @@ Things HE does *not* do that we already cover and shouldn't regress on:
 no-Dockerfile-in-project-tree, `apps.yaml` + develop mode, `uv sync`
 instead of rebuild, patch series with metadata, prod target + Helm chart
 in the same repo, scaffolding for widgets/plugins/cards/components.
+
+---
+
+## Design proposal: project patch selection (sits with apps)
+
+**Status:** control plane implemented 2026-06-28 (`patch list/enable/disable`
++ packaging); apply + promote + local `add` are the next increments.
+
+**Goal.** Manage which Arches-core patches apply *per project*, with the same
+manifest-plus-CLI-toggle UX as apps — referenced by id/name from a listed
+view, never by hand-editing patch files. Plus a local layer so a developer
+can try a patch before it's shared, and promote it into the shared series.
+
+**Two layers (mirrors develop-apps):**
+
+- **Toolkit series** — patches shipped with the CLI. They live in the package
+  at `cli/src/arches_toolkit/_data/patches/`, so they ship as normal package
+  data (no force-include); the base image build reads them via a buildx named
+  build context (`--build-context patches=…` + `COPY --from=patches`). The
+  baseline, baked into the base image. Enabled by default.
+- **Local overlay** — `*.patch` files in the project's `patches/` directory.
+  Enabled by default. *Promote* a local patch into the toolkit series to
+  share it — **push to share, not to use**, the same contract as
+  develop-apps and the npm overlay.
+
+**Manifest.** `patches.yaml` at the project root records only *deviations*
+from "everything enabled" — a `disabled:` list of patch ids. Absent/empty
+manifest ⇒ all discovered patches enabled, so a fresh project needs no file.
+Mirrors how `apps.yaml` carries selection state.
+
+**Referencing patches.** By **id** (filename stem). Selectors accept the full
+id, the numeric prefix (`0001` / `1`), or any unique substring — so the CLI
+offers a numbered, toggle-by-name list. `patches.py.shipped_patches_dir()`
+resolves the series from package data (installed) with a repo fallback
+(editable/in-tree), which also fixes `patch list`/`status` from an installed
+CLI (they were repo-relative and silently empty in a project).
+
+**Why disabling matters even though the base image bakes all patches.** The
+enabled set is the *control plane* consumed by the appliers: the
+`ARCHES_SRC` worktree apply (which `git am`s only the enabled set onto the
+live clone — see the ARCHES_SRC worktree design) and, later, per-project
+base-image builds (ties to the recipe-pinning design). Today it records
+intent; the appliers consume it as they land.
+
+**Implemented now**
+- `patch list` — numbered table: id, source (toolkit/local), on/off,
+  subject, upstream, last-reviewed.
+- `patch enable|disable <selector…>` — flips state in `patches.yaml`
+  (creates it on first disable, removes it when back to all-enabled). Prunes
+  stale ids on write.
+- `patch add <file>` — register a local `.patch` into `./patches/` (CLI, so
+  no manual file drop), enabled by default.
+- `patch rm <selector>` — delete a local patch (toolkit patches: `disable`).
+- `patch promote <selector>` — graduate a local patch into the shipped
+  toolkit series (next NNNN-, refreshed headers, removes the local copy).
+  Refuses to run against an installed package (site-packages) — toolkit-repo
+  / editable only. Overlaps the existing `patch finish`.
+- Patches shipped as standard package data (`uv_build`/hatchling include the
+  package tree; no force-include); `shipped_patches_dir()` resolution.
+- `patches_manifest.py` (the control-plane module, modelled on
+  `apps_manifest.py`) + tests.
+
+**Next increments (both consume `enabled_patches()`; sequence after this
+control plane merges)**
+- `patch apply` — `git am` the enabled set onto an `ARCHES_SRC` worktree
+  (the runtime consumer for local core-dev; pairs with the worktree feature,
+  which needs a real arches clone to validate).
+- **Selectable patches per base build.** Today the base image build applies
+  the *whole* series unconditionally — `docker/base/Dockerfile` does
+  `git am /patches/*.patch` over everything in the `patches` build context.
+  Because patches now arrive via a **named build context** (not a fixed
+  in-tree dir), per-build selection moves up to the caller: `build.sh` (or a
+  future `arches-toolkit base build`) computes `enabled_patches()` for a
+  project, stages just those `.patch` files into a temp dir, and points
+  `--build-context patches=<temp>`. The Dockerfile stays dumb ("apply
+  everything in the context"); different builds → different subsets → tag
+  differently → projects pin via `ARCHES_TOOLKIT_TAG`. This is the link
+  between the patch toggle state, the base build, and the per-project base
+  images of the recipe-pinning design.
+  - *Caveat:* patches aren't guaranteed independent — `git am` applies in
+    `NNNN-` order, so disabling a middle patch a later one depends on fails
+    the build (loudly, at the right place). The toggle gives freedom; the
+    enabled set must stay coherent.
 
 ---
 

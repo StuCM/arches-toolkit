@@ -1,6 +1,6 @@
 # Prod-like baseline. Dev overlay in compose.dev.yaml.
 # ARCHES_FRONTEND_CONFIGURATION_DIR is wired here but only honoured once the
-# Stage 6 Arches patch is applied (see docker/base/patches/0001-*.patch).
+# Stage 6 Arches patch is applied (see cli/src/arches_toolkit/_data/patches/0001-*.patch).
 
 x-arches: &arches
   image: ${PROJECT_IMAGE:-arches-project}:${PROJECT_TAG:-dev}

@@ -8,7 +8,7 @@ needed between edits.
 
 **How it works:** the base image installs Arches editable from `/opt/arches`
 (cloning your chosen ref at base-image build time, plus any patches from
-`docker/base/patches/`). The `ARCHES_SRC` overlay bind-mounts your local
+`cli/src/arches_toolkit/_data/patches/`). The `ARCHES_SRC` overlay bind-mounts your local
 Arches repo root over `/opt/arches`, so the editable install now reads from
 your clone. Edits to your clone are live — no runtime install, no `.pth`
 rewriting.

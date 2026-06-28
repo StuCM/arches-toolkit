@@ -13,7 +13,8 @@ from rich.console import Console
 from rich.table import Table
 
 from .. import patches as patches_mod
-from ..patches import PATCHES_RELDIR, PatchHeader, PatchHeaderError
+from .. import patches_manifest
+from ..patches import PatchHeader, PatchHeaderError
 
 app = typer.Typer(no_args_is_help=True, help="Inspect and maintain Arches patch series")
 
@@ -59,7 +60,7 @@ def _sanitise_patch_name(name: str) -> str:
 def _resolve_patches_dir(explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit
-    return Path.cwd() / PATCHES_RELDIR
+    return patches_mod.shipped_patches_dir()
 
 
 def _ensure_patches_dir(path: Path) -> None:
@@ -90,29 +91,136 @@ def _render_table(headers: list[PatchHeader], *, with_status_column: bool) -> Ta
 
 @app.command("list")
 def list_(
-    patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+    project_root: Path = typer.Option(
+        Path("."), "--project-root", help="Project root (for patches.yaml + local patches)"
     ),
 ) -> None:
-    """List patches with header metadata."""
-    pdir = _resolve_patches_dir(patches_dir)
-    _ensure_patches_dir(pdir)
-    headers = patches_mod.parse_all(pdir)
-    if not headers:
-        typer.echo(f"no patches in {pdir}")
+    """List patches (toolkit series + local overlay) with on/off state.
+
+    Reference a patch by the id shown, its number, or a unique substring when
+    toggling with `patch enable|disable`.
+    """
+    entries = patches_manifest.load(project_root.resolve())
+    if not entries:
+        typer.echo("no patches found (toolkit series empty and no ./patches/*.patch)")
         return
-    table = _render_table(headers, with_status_column=False)
-    for h in headers:
-        last, age = _format_review(h)
-        table.add_row(h.name, h.subject or "—", h.upstream or "—", last, age)
+
+    table = Table(title=f"{len(entries)} patch(es)")
+    table.add_column("#", justify="right")
+    table.add_column("id", overflow="fold")
+    table.add_column("src")
+    table.add_column("on")
+    table.add_column("subject", overflow="fold")
+    table.add_column("upstream", overflow="fold")
+    table.add_column("reviewed")
+    for i, e in enumerate(entries, start=1):
+        last, _age = _format_review(e.header)
+        table.add_row(
+            str(i),
+            e.id,
+            e.source,
+            "[green]✓[/green]" if e.enabled else "[red]✗[/red]",
+            e.subject,
+            e.header.upstream or "—",
+            last,
+        )
     console.print(table)
+
+
+def _toggle(project_root: Path, selectors: list[str], *, enabled: bool) -> None:
+    try:
+        changed = patches_manifest.set_enabled(
+            project_root.resolve(), selectors, enabled=enabled
+        )
+    except patches_manifest.PatchSelectorError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(1)
+    verb = "enabled" if enabled else "disabled"
+    for e in changed:
+        typer.echo(f"{verb}: {e.id}")
+    typer.echo(
+        "Re-apply to a running ARCHES_SRC clone, or rebuild the base image, "
+        "for this to take effect."
+    )
+
+
+@app.command("enable")
+def enable(
+    selectors: list[str] = typer.Argument(..., help="Patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Enable one or more patches (clears them from patches.yaml `disabled`)."""
+    _toggle(project_root, selectors, enabled=True)
+
+
+@app.command("disable")
+def disable(
+    selectors: list[str] = typer.Argument(..., help="Patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Disable one or more patches (records them in patches.yaml `disabled`)."""
+    _toggle(project_root, selectors, enabled=False)
+
+
+@app.command("add")
+def add(
+    file: Path = typer.Argument(..., help="A .patch file to register as a local patch"),
+    name: str | None = typer.Option(None, "--name", help="Override the id (filename stem)"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing local patch"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Register a local patch (copies a .patch file into ./patches/, enabled)."""
+    try:
+        e = patches_manifest.add_local(
+            project_root.resolve(), file, name=name, force=force
+        )
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"added local patch: {e.id} (enabled)")
+
+
+@app.command("rm")
+def rm(
+    selector: str = typer.Argument(..., help="Local patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Delete a local patch (toolkit patches: use `disable` instead)."""
+    try:
+        e = patches_manifest.remove_local(project_root.resolve(), selector)
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"removed local patch: {e.id}")
+
+
+@app.command("promote")
+def promote(
+    selector: str = typer.Argument(..., help="Local patch id, number, or unique substring"),
+    upstream: str | None = typer.Option(None, "--upstream", help="Upstream PR URL"),
+    reason: str | None = typer.Option(None, "--reason", help="One-line justification"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Graduate a local patch into the shipped toolkit series (push to share)."""
+    try:
+        dest, new_id = patches_manifest.promote(
+            project_root.resolve(), selector, upstream=upstream, reason=reason
+        )
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"promoted to toolkit series: {new_id}")
+    typer.echo(
+        "Commit it in the toolkit repo and rebuild the base image "
+        "(docker/base/build.sh) to bake it in for everyone."
+    )
 
 
 @app.command("renew")
 def renew(
     patch_name: str = typer.Argument(..., help="Patch filename (e.g. 0001-foo.patch)"),
     patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+        None, "--patches-dir", help="Override patches directory (default: the shipped series)"
     ),
 ) -> None:
     """Bump ``Last-reviewed:`` in the named patch to today."""
@@ -132,7 +240,7 @@ def renew(
 @app.command("status")
 def status(
     patches_dir: Path | None = typer.Option(
-        None, "--patches-dir", help="Override patches directory (default: docker/base/patches)"
+        None, "--patches-dir", help="Override patches directory (default: the shipped series)"
     ),
 ) -> None:
     """Like ``list``, but query the GitHub API for upstream PR state."""
@@ -247,7 +355,7 @@ def finish(
         help="Leave the scratch clone in place (default) or delete it",
     ),
 ) -> None:
-    """Export the topmost commit in the scratch as docker/base/patches/NNNN-<name>.patch."""
+    """Export the topmost commit in the scratch as NNNN-<name>.patch in the series."""
     if shutil.which("git") is None:
         raise typer.BadParameter("git not found on PATH")
     name = _sanitise_patch_name(name)
@@ -275,12 +383,10 @@ def finish(
             f"{scratch}: no new commits since `patch start` — commit first, then re-run"
         )
 
-    if patches_dir is not None:
-        pdir = patches_dir
-    elif toolkit_root:
-        pdir = Path(toolkit_root) / PATCHES_RELDIR
-    else:
-        pdir = _resolve_patches_dir(None)
+    # The series lives in the package tree; shipped_patches_dir() resolves it
+    # in an editable checkout regardless of cwd. (toolkit_root is still read
+    # from the marker for context but no longer needed to locate the series.)
+    pdir = patches_dir if patches_dir is not None else _resolve_patches_dir(None)
     pdir.mkdir(parents=True, exist_ok=True)
 
     # Remove any prior patch with the same name so we don't collect duplicates.
