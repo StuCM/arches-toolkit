@@ -16,21 +16,18 @@ attached ``up`` with the complete log stream instead.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
-from importlib import resources
 from pathlib import Path
 
 import typer
 
-from .. import _output
+from .. import _compose, _output
 
-PACKAGE_DATA = "arches_toolkit._data"
-BASELINE = ("compose.yaml", "compose.dev.yaml")
-PROJECT_OVERLAYS = ("compose.extras.yaml",)
-ARCHES_SRC_OVERLAY = "compose.arches-src.yaml"
+# Re-exported for tests and back-compat; the canonical helpers live in _compose.
+_env_file_var = _compose.env_file_var
+_package_data_path = _compose.package_data_path
 
 INFRA_SERVICES = ("db", "elasticsearch", "rabbitmq")
 
@@ -45,32 +42,6 @@ READY_STAGES = (
 READY_TIMEOUT_SECONDS = 900
 POLL_INTERVAL_SECONDS = 2
 WAITING_NOTE_EVERY_SECONDS = 30
-
-
-def _package_data_path(name: str) -> Path:
-    p = Path(str(resources.files(PACKAGE_DATA).joinpath(name)))
-    if not p.exists():
-        raise typer.BadParameter(f"package data missing: {name}")
-    return p
-
-
-def _env_file_var(env_path: Path, key: str) -> str | None:
-    """Minimal .env reader — returns the value for key, or None.
-
-    Docker compose reads .env automatically for YAML interpolation, but the
-    Python CLI doesn't get that for free. We look up specific keys that gate
-    CLI-level behaviour (right now: ARCHES_SRC).
-    """
-    if not env_path.exists():
-        return None
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        if k.strip() == key:
-            return v.strip().strip('"').strip("'")
-    return None
 
 
 def _compose_base(project_root: Path, compose_files: list[Path]) -> list[str]:
@@ -227,33 +198,28 @@ def dev(
     if shutil.which("docker") is None:
         raise typer.BadParameter("docker not found on PATH")
 
-    dockerfile = _package_data_path("Dockerfile")
-    compose_files = [_package_data_path(name) for name in BASELINE]
+    dockerfile = _compose.package_data_path("Dockerfile")
 
     project_root = project_root.resolve()
-    compose_files += [project_root / n for n in PROJECT_OVERLAYS if (project_root / n).exists()]
+    compose_files = _compose.compose_files(project_root)
 
     # Shell env wins; fall back to project .env so users can put ARCHES_SRC
     # there alongside other toolkit config.
-    arches_src = os.environ.get("ARCHES_SRC") or _env_file_var(
-        project_root / ".env", "ARCHES_SRC"
-    )
+    arches_src = _compose.resolve_arches_src(project_root)
     if arches_src:
-        compose_files.append(_package_data_path(ARCHES_SRC_OVERLAY))
         typer.echo(f"ARCHES_SRC={arches_src}  (overlay: compose.arches-src.yaml)")
 
     argv = _up_argv(project_root, compose_files, list(ctx.args), build=build)
-    env = os.environ.copy()
-    env["ARCHES_TOOLKIT_DOCKERFILE"] = str(dockerfile)
-    # Make ARCHES_SRC available to compose even if it came from .env only.
-    if arches_src:
-        env["ARCHES_SRC"] = arches_src
+    env = _compose.compose_env(project_root)
 
     if dry_run:
         # --dry-run's whole purpose is showing the invocation — always print.
         typer.echo(f"ARCHES_TOOLKIT_DOCKERFILE={dockerfile}")
         typer.echo(" ".join(argv))
         return
+
+    # Persist the project name so raw `docker compose ps/logs/…` target this stack.
+    _compose.ensure_project_name(project_root)
 
     if _output.is_verbose():
         _output.stage("Starting the dev stack (docker compose up, full logs)")

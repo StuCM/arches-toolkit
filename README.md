@@ -42,7 +42,15 @@ arches-toolkit exec web bash         # shell into a container
 arches-toolkit restart web           # restart one service (~2s; no rebuild)
 arches-toolkit down                  # stop everything (preserves volumes)
 arches-toolkit down -v               # stop and wipe volumes (destructive)
+arches-toolkit compose <args…>       # any docker compose subcommand (config, up, build, …)
 ```
+
+`init` writes a `COMPOSE_PROJECT_NAME` to `.env`, so the running-container
+commands also work as **plain `docker compose`** from the project root —
+`docker compose ps`, `docker compose logs -f web`, `docker compose exec web bash`
+all resolve this project's stack by label, no `-f` files needed. Commands that
+need the packaged compose files (`up`/`build`/`config`) go through
+`arches-toolkit compose` (or `dev`), which supplies them.
 
 ### Editing Python or frontend code
 
@@ -183,7 +191,7 @@ See [docker/base/README.md](docker/base/README.md) for the full tag scheme and C
 | `ARCHES_TOOLKIT_INIT_SQL` | Absolute path to `init.sql` inside the installed CLI |
 | `ARCHES_SRC` (optional) | Host path to a local Arches clone to bind-mount over `/opt/arches` |
 
-If you find yourself running raw `docker compose` commands from a project, you'll need to export the toolkit internals first. Better: use the CLI wrappers (`arches-toolkit logs|ps|exec|restart|down|build`) — they set these for you.
+The **label-based** commands (`ps`, `logs`, `exec`, `restart`, `down`) need none of these — they resolve the stack by the `COMPOSE_PROJECT_NAME` written to `.env`, so plain `docker compose ps` / `logs -f web` work from the project root. The **file-needing** commands (`up`, `build`, `config`) need the packaged files + the vars above; run them via `arches-toolkit compose <args…>` (or `dev`), which sets everything for you. The named wrappers (`arches-toolkit logs|ps|exec|restart|down|build`) remain as sugar over the same base.
 
 ## Command reference
 
@@ -195,7 +203,8 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml`, INSTALLED_APPS block + managed npm entries (`npm: true` apps) from `apps.yaml` |
-| `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper |
+| `arches-toolkit compose <args…>` | Run any `docker compose` subcommand against the packaged stack (`up`, `build`, `config`, …) |
+| `arches-toolkit logs [-f] [service]` | `docker compose logs` wrapper (or plain `docker compose logs`) |
 | `arches-toolkit ps` | `docker compose ps` wrapper |
 | `arches-toolkit exec <service> <cmd…>` | `docker compose exec` wrapper |
 | `arches-toolkit restart [service…]` | `docker compose restart` wrapper |

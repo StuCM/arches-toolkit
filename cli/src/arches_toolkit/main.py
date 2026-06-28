@@ -89,8 +89,9 @@ app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(dev_cmd.dev)
 
-# compose wrappers: logs / ps / exec / restart / down / build
+# compose: generic escape hatch + named sugar (logs / ps / exec / restart / down / build)
 _passthrough = {"allow_extra_args": True, "ignore_unknown_options": True}
+app.command("compose", help="Run any `docker compose` subcommand against the packaged stack", context_settings=_passthrough)(compose_wrappers.compose)
 app.command("logs", help="Tail `docker compose logs` for the project", context_settings=_passthrough)(compose_wrappers.logs)
 app.command("ps", help="List project containers (`docker compose ps`)", context_settings=_passthrough)(compose_wrappers.ps)
 app.command("exec", help="Exec a command in a running service", context_settings=_passthrough)(compose_wrappers.exec_)
