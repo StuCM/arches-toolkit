@@ -23,6 +23,8 @@ listed, toggle-by-name/number UX without hand-editing files.
 
 from __future__ import annotations
 
+import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +39,11 @@ TOOLKIT = "toolkit"
 LOCAL = "local"
 
 
-class PatchSelectorError(ValueError):
+class PatchError(ValueError):
+    """Base for patch-management errors surfaced to the CLI."""
+
+
+class PatchSelectorError(PatchError):
     """Raised when a selector matches zero or multiple patches."""
 
 
@@ -198,3 +204,93 @@ def set_enabled(
         PatchEntry(id=e.id, source=e.source, enabled=enabled, path=e.path, header=e.header)
         for e in resolved
     ]
+
+
+def _sanitise_stem(name: str) -> str:
+    stem = name[:-6] if name.endswith(".patch") else name
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", stem):
+        raise PatchError(
+            f"patch id {stem!r} must be alphanumeric kebab/snake-case "
+            "(letters, digits, '.', '_', '-')"
+        )
+    return stem
+
+
+def _prune_disabled_to_known(project_root: Path) -> None:
+    known = {e.id for e in load(project_root)}
+    _write_disabled(project_root, _read_disabled(project_root) & known)
+
+
+def add_local(
+    project_root: Path,
+    src: Path,
+    *,
+    name: str | None = None,
+    force: bool = False,
+) -> PatchEntry:
+    """Register a ``.patch`` file as a local patch (copies it into ./patches/).
+
+    Enabled by default. Raises :class:`PatchError` on a missing source, a bad
+    id, or a name clash (unless ``force``).
+    """
+    src = Path(src)
+    if not src.is_file():
+        raise PatchError(f"{src}: not found")
+    stem = _sanitise_stem(name or src.name)
+    dest_dir = local_patches_dir(project_root)
+    dest = dest_dir / f"{stem}.patch"
+    if dest.exists() and not force:
+        raise PatchError(f"{dest.name} already exists in ./{LOCAL_PATCHES_DIRNAME} (use --force)")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    return PatchEntry(
+        id=stem, source=LOCAL, enabled=True, path=dest, header=patches_mod.parse_file(dest)
+    )
+
+
+def remove_local(project_root: Path, token: str) -> PatchEntry:
+    """Delete a *local* patch file. Toolkit patches can't be removed (disable
+    them instead). Raises :class:`PatchError`."""
+    entry = resolve(load(project_root), token)
+    if entry.source != LOCAL:
+        raise PatchError(
+            f"{entry.id} is a toolkit patch — use `disable`, not `rm`"
+        )
+    entry.path.unlink()
+    _prune_disabled_to_known(project_root)
+    return entry
+
+
+def promote(
+    project_root: Path,
+    token: str,
+    *,
+    upstream: str | None = None,
+    reason: str | None = None,
+) -> tuple[Path, str]:
+    """Graduate a local patch into the toolkit series (NNNN-<name>.patch).
+
+    Writes into the shipped series with refreshed headers and removes the local
+    copy. Must run from a toolkit repo checkout (editable install) — refuses to
+    write into an installed package. Returns (new_path, new_id).
+    """
+    shipped = patches_mod.shipped_patches_dir()
+    if "site-packages" in str(shipped):
+        raise PatchError(
+            "promote writes into the toolkit's patch series — run it from a "
+            "toolkit repo checkout (editable install), not an installed package"
+        )
+    entry = resolve(load(project_root), token)
+    if entry.source != LOCAL:
+        raise PatchError(f"{entry.id} is already in the toolkit series")
+
+    base = re.sub(r"^\d+-", "", entry.id)  # drop any leading NNNN- from the local id
+    n = patches_mod.next_patch_number(shipped)
+    dest = shipped / f"{n:04d}-{base}.patch"
+    content = patches_mod.inject_headers(
+        entry.path.read_text(encoding="utf-8"), upstream=upstream, reason=reason
+    )
+    dest.write_text(content, encoding="utf-8")
+    entry.path.unlink()
+    _prune_disabled_to_known(project_root)
+    return dest, dest.stem

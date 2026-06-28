@@ -778,18 +778,23 @@ intent; the appliers consume it as they land.
 - `patch enable|disable <selector…>` — flips state in `patches.yaml`
   (creates it on first disable, removes it when back to all-enabled). Prunes
   stale ids on write.
-- Patches shipped as wheel package data; `shipped_patches_dir()` resolution.
+- `patch add <file>` — register a local `.patch` into `./patches/` (CLI, so
+  no manual file drop), enabled by default.
+- `patch rm <selector>` — delete a local patch (toolkit patches: `disable`).
+- `patch promote <selector>` — graduate a local patch into the shipped
+  toolkit series (next NNNN-, refreshed headers, removes the local copy).
+  Refuses to run against an installed package (site-packages) — toolkit-repo
+  / editable only. Overlaps the existing `patch finish`.
+- Patches shipped as standard package data (`uv_build`/hatchling include the
+  package tree; no force-include); `shipped_patches_dir()` resolution.
 - `patches_manifest.py` (the control-plane module, modelled on
   `apps_manifest.py`) + tests.
 
-**Next increments**
+**Next increment**
 - `patch apply` — `git am` the enabled set onto an `ARCHES_SRC` worktree
-  (the consumer; pairs with the worktree feature).
-- `patch add <file>` — register a local `.patch` into `./patches/` (CLI, so
-  no manual file drop).
-- `patch promote <id>` — graduate a local patch into the toolkit series
-  (`cli/src/arches_toolkit/_data/patches`, renumber + headers) → a toolkit
-  PR → baked into the next base image. Overlaps the existing `patch finish`.
+  (the runtime consumer; pairs with the worktree feature, which needs a real
+  arches clone to validate). This is the one remaining piece before the
+  control plane actually drives what's applied.
 
 ---
 

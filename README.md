@@ -131,12 +131,16 @@ the CLI, baked into the base image, enabled by default) and a **local overlay**
 arches-toolkit patch list                  # numbered table: id, source, on/off, subject, upstream
 arches-toolkit patch disable 1             # turn a patch off for this project (by number)
 arches-toolkit patch enable frontend       # turn it back on (by unique substring)
+arches-toolkit patch add ./my-fix.patch    # register a local patch (copies into ./patches/)
+arches-toolkit patch rm my-fix             # delete a local patch
+arches-toolkit patch promote my-fix        # graduate a local patch into the shipped toolkit series
 arches-toolkit patch status                # like list, plus GitHub PR state if GH_TOKEN set
-arches-toolkit patch renew my-fix          # bump Last-reviewed to today
 ```
 
 `patch list` shows every patch with an `on` column; `enable`/`disable` record only
 deviations from "all enabled" in `patches.yaml` (no file means everything is on).
+Local patches live in `./patches/` and are managed with `add`/`rm`; `promote`
+moves one into the shared series (push to share, not to use).
 
 Authoring a new toolkit patch:
 

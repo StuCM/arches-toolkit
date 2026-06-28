@@ -162,6 +162,60 @@ def disable(
     _toggle(project_root, selectors, enabled=False)
 
 
+@app.command("add")
+def add(
+    file: Path = typer.Argument(..., help="A .patch file to register as a local patch"),
+    name: str | None = typer.Option(None, "--name", help="Override the id (filename stem)"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing local patch"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Register a local patch (copies a .patch file into ./patches/, enabled)."""
+    try:
+        e = patches_manifest.add_local(
+            project_root.resolve(), file, name=name, force=force
+        )
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"added local patch: {e.id} (enabled)")
+
+
+@app.command("rm")
+def rm(
+    selector: str = typer.Argument(..., help="Local patch id, number, or unique substring"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Delete a local patch (toolkit patches: use `disable` instead)."""
+    try:
+        e = patches_manifest.remove_local(project_root.resolve(), selector)
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"removed local patch: {e.id}")
+
+
+@app.command("promote")
+def promote(
+    selector: str = typer.Argument(..., help="Local patch id, number, or unique substring"),
+    upstream: str | None = typer.Option(None, "--upstream", help="Upstream PR URL"),
+    reason: str | None = typer.Option(None, "--reason", help="One-line justification"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
+) -> None:
+    """Graduate a local patch into the shipped toolkit series (push to share)."""
+    try:
+        dest, new_id = patches_manifest.promote(
+            project_root.resolve(), selector, upstream=upstream, reason=reason
+        )
+    except patches_manifest.PatchError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"promoted to toolkit series: {new_id}")
+    typer.echo(
+        "Commit it in the toolkit repo and rebuild the base image "
+        "(docker/base/build.sh) to bake it in for everyone."
+    )
+
+
 @app.command("renew")
 def renew(
     patch_name: str = typer.Argument(..., help="Patch filename (e.g. 0001-foo.patch)"),
