@@ -790,11 +790,27 @@ intent; the appliers consume it as they land.
 - `patches_manifest.py` (the control-plane module, modelled on
   `apps_manifest.py`) + tests.
 
-**Next increment**
+**Next increments (both consume `enabled_patches()`; sequence after this
+control plane merges)**
 - `patch apply` — `git am` the enabled set onto an `ARCHES_SRC` worktree
-  (the runtime consumer; pairs with the worktree feature, which needs a real
-  arches clone to validate). This is the one remaining piece before the
-  control plane actually drives what's applied.
+  (the runtime consumer for local core-dev; pairs with the worktree feature,
+  which needs a real arches clone to validate).
+- **Selectable patches per base build.** Today the base image build applies
+  the *whole* series unconditionally — `docker/base/Dockerfile` does
+  `git am /patches/*.patch` over everything in the `patches` build context.
+  Because patches now arrive via a **named build context** (not a fixed
+  in-tree dir), per-build selection moves up to the caller: `build.sh` (or a
+  future `arches-toolkit base build`) computes `enabled_patches()` for a
+  project, stages just those `.patch` files into a temp dir, and points
+  `--build-context patches=<temp>`. The Dockerfile stays dumb ("apply
+  everything in the context"); different builds → different subsets → tag
+  differently → projects pin via `ARCHES_TOOLKIT_TAG`. This is the link
+  between the patch toggle state, the base build, and the per-project base
+  images of the recipe-pinning design.
+  - *Caveat:* patches aren't guaranteed independent — `git am` applies in
+    `NNNN-` order, so disabling a middle patch a later one depends on fails
+    the build (loudly, at the right place). The toggle gives freedom; the
+    enabled set must stay coherent.
 
 ---
 
