@@ -1015,6 +1015,18 @@ in the same repo, scaffolding for widgets/plugins/cards/components.
 
 ## Phase 2 (deferred — not started in Phase 1)
 
+**Deployment design landed 2026-07-01:** [docs/k8s-deployment.md](docs/k8s-deployment.md)
+specifies the dev → staging → production topology (init split into
+build-time / release Job / per-pod, storage elimination, tag-based
+promotion via the existing Flux pipeline, speed budget, prod-readiness
+checklist) and the ordered execution plan. It also enumerates the
+image-contract gaps that block everything else: `frontend`-stage script
+and output paths vs real arches-admin projects, `webpack-stats.json`
+missing from `prod`, `nginx`-target static/media paths, build-time
+`frontend_configuration` generation, gunicorn parameterisation, health
+endpoint, stdout logging. Sequence: close those gaps → run-mode selector
+→ `project-ci.yml` → chart 0.1.0 in `helm-arches`.
+
 - Helm chart rework in the `helm-arches` repo (charts deliberately do NOT
   live in the toolkit — the prototype `chart/` seeded here was removed
   2026-06-11; the WIP toolkit-adaptation diff from 02359ff is exported to

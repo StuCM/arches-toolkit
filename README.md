@@ -214,7 +214,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | Webpack HMR port (internal 8080 vs mapped 9000) | Pending |
 | `HOST_UID` build arg for non-1000 host users | Pending |
 | Prod target: `COPY webpack-stats.json` from frontend stage | Pending |
-| Helm chart updates (Phase 2) | Deferred |
+| Helm chart updates (Phase 2) | Designed — [docs/k8s-deployment.md](docs/k8s-deployment.md) |
 | Project-CI reusable workflow (Phase 2) | Deferred |
 | Upstream PRs for patches + the one bucket-A commit | Deferred |
 
@@ -234,6 +234,7 @@ See [cli/src/arches_toolkit/commands/](cli/src/arches_toolkit/commands/) for the
 
 - [PLAN.md](PLAN.md) — design rationale
 - [TASKS.md](TASKS.md) — Phase 1 work list
+- [docs/k8s-deployment.md](docs/k8s-deployment.md) — Phase 2 deployment spec: how the local-dev contract translates to k8s dev/staging/production
 - [docs/incremental-migration.md](docs/incremental-migration.md) — adopt the toolkit for dev while keeping legacy CI — the recommended path for projects already deploying to production
 - [docs/migrating-quartz.md](docs/migrating-quartz.md) — worked migration example
 - [docs/create.md](docs/create.md) — scaffolding apps, widgets, plugins, etc. and the full `create app` lifecycle
