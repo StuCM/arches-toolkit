@@ -11,6 +11,7 @@ from . import _output
 from .commands import add_app as add_app_cmd
 from .commands import compose_wrappers
 from .commands import create as create_cmd
+from .commands import deploy as deploy_cmd
 from .commands import dev as dev_cmd
 from .commands import init as init_cmd
 from .commands import migrate as migrate_cmd
@@ -88,6 +89,10 @@ app.command(
     help="Start the dev stack (detached, with readiness milestones); edits live-reload via bind mounts",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(dev_cmd.dev)
+app.command(
+    "deploy",
+    help="Deploy to a k8s environment (dev: direct helm with bundled services; staging/prod: GitOps)",
+)(deploy_cmd.deploy)
 
 # compose wrappers: logs / ps / exec / restart / down / build
 _passthrough = {"allow_extra_args": True, "ignore_unknown_options": True}

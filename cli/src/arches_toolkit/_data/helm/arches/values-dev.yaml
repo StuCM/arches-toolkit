@@ -1,0 +1,52 @@
+# Dev/ephemeral-namespace profile for `arches-toolkit deploy dev`.
+# Same shape as production (limits ≤ ~2x requests, no CPU limits) with
+# capacity scaled down — parity lives in topology, not capacity
+# (docs/k8s-deployment.md).
+
+web:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+worker:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+static:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
+
+initJob:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 768Mi
+    limits:
+      memory: 1.5Gi
+
+uploads:
+  persistence:
+    # Dev clusters rarely have RWX storage; single-node access is fine
+    # for one replica of everything.
+    accessModes: ["ReadWriteOnce"]
+    size: 5Gi
+
+env:
+  DEBUG: "False"

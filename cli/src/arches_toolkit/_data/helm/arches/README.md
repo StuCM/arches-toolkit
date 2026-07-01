@@ -1,15 +1,18 @@
 # arches chart (0.1.0)
 
 Deploys an Arches project built with the arches-toolkit image contract.
-Implements [docs/k8s-deployment.md](../../docs/k8s-deployment.md); the
-delta from the old chart 0.0.19 is catalogued in
-[docs/helm-migration-audit.md](../../docs/helm-migration-audit.md).
+Implements [docs/k8s-deployment.md](../../../../../../docs/k8s-deployment.md);
+the delta from the old chart 0.0.19 is catalogued in
+[docs/helm-migration-audit.md](../../../../../../docs/helm-migration-audit.md).
 
 > **Location note.** Charts were decided (2026-06-11) to live in
-> `helm-arches`, not this repo. This chart is developed here so it can
-> iterate against the image contract and compose files in one place;
-> promote it to `helm-arches` (or revisit the decision) before the first
-> real release. Nothing in it depends on being in this repo.
+> `helm-arches`, not this repo. This chart ships as CLI package data (the
+> same package-only invariant as the compose files) so that
+> `arches-toolkit deploy` is self-contained — promote it to `helm-arches`
+> (or revisit the decision) before the first real release; `deploy` can
+> then consume it as an OCI chart ref instead. The sibling
+> `arches-dev-services` chart provides throwaway in-cluster
+> Postgres/ES/RabbitMQ for `deploy dev` — never for staging/prod.
 
 ## What it deploys
 

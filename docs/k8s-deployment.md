@@ -301,6 +301,52 @@ tag — mirroring `base-image.yml`, which already establishes the pattern
 (scan gates on HIGH/CRITICAL, cosign scaffolded until action-pinning is
 resolved).
 
+## Single-command deploys — `arches-toolkit deploy <env>`
+
+**Status:** direct mode implemented 2026-07-01; gitops mode designed, not
+implemented.
+
+The promotion pipeline above spans repos (project → fluxcd → images), which
+is correct for staging/prod but heavy for "just put my branch on a dev
+namespace". `deploy` gives one front door with per-environment *modes*, so
+convenience never bypasses GitOps where GitOps is the contract:
+
+| Mode | Environments | What `deploy` does |
+|---|---|---|
+| **direct** | dev, ephemeral/test namespaces | `helm upgrade --install` of the packaged charts against the kube context — the k8s sibling of `arches-toolkit dev` |
+| **gitops** | staging, prod | *Not yet implemented.* Deploying **is** committing: the command will write the tag/values bump into the fluxcd repo (SOPS-encrypting new secrets) and open the PR; Flux applies. Until then it prints the manual path and exits |
+
+Direct mode defaults (zero config in a fresh project):
+
+- `arches-toolkit deploy` = `deploy dev` → namespace `<project>-dev`,
+  values from `.env` (`PROJECT_NAME/PACKAGE/IMAGE/TAG`), the `values-dev`
+  capacity profile, and `fullnameOverride: <project>` for predictable
+  resource names.
+- **`devServices: true`** installs the packaged `arches-dev-services`
+  chart first (`--wait`, so the DB is up before the app's init Job
+  migrates): single-replica PostGIS/ES/RabbitMQ mirroring the compose
+  infrastructure layer, explicitly never for staging/prod. The app chart
+  is wired to its Services/Secrets automatically.
+- **Local-only generated secrets**: `DJANGO_SECRET_KEY` and service
+  passwords are generated once into a gitignored
+  `.deploy-secrets.<env>.yaml`, stable across re-deploys. The SOPS
+  pipeline owns secrets everywhere gitops owns deploys.
+- `deploy.yaml` (optional, committed) adds/overrides environments:
+  `mode`, `context`, `namespace`, `devServices`, inline chart `values`.
+- `--dry-run` prints the helm invocations; `--render` emits the full
+  manifests via `helm template` with clean stdout (no cluster needed).
+
+Guardrails, because convenience must not become the incident:
+
+1. **`deploy prod` refuses direct mode outright** — production is GitOps,
+   no flag overrides that.
+2. **Flux-ownership check**: before any direct install, the target
+   namespace's labels are checked for `kustomize/helm.toolkit.fluxcd.io`
+   ownership; a Flux-managed namespace is refused (direct helm would
+   fight the controller) unless `--force`.
+3. The image must be pullable by the cluster — `deploy` warns on
+   registry-less image names (kind/k3d import territory).
+
 ## Speed budget
 
 Where the time goes today (old toolkit) and where it goes after:
@@ -337,7 +383,7 @@ previous image tag, no down-migration, seconds.
 | Repo | Work |
 |---|---|
 | **arches-toolkit** (this repo) | Image-contract gap list above; run-mode selector; `project-ci.yml` / `project-release.yml` reusable workflows with registry caching; this doc |
-| **helm-arches** | Chart 0.1.0 breaking rewrite per the audit doc's sequence, implementing this topology; the exported `toolkit-adaptation-wip.patch` is the starting point. *Interim (2026-07-01): the 0.1.0 chart is being developed in this repo under [helm/arches/](../helm/arches/) so it can iterate against the image contract in one place — promote it to `helm-arches` (or revisit that decision) before the first real release* |
+| **helm-arches** | Chart 0.1.0 breaking rewrite per the audit doc's sequence, implementing this topology; the exported `toolkit-adaptation-wip.patch` is the starting point. *Interim (2026-07-01): the 0.1.0 chart is being developed in this repo under [cli/src/arches_toolkit/_data/helm/arches/](../cli/src/arches_toolkit/_data/helm/arches/) (CLI package data, so `arches-toolkit deploy` ships it) so it can iterate against the image contract in one place — promote it to `helm-arches` (or revisit that decision) before the first real release* |
 | **fluxcd repos** | Per-project: ImagePolicy regex for the new tag shape, values for the new chart — the audit's "NOT in this audit" list stays untouched |
 
 ## Ordered execution plan
@@ -353,7 +399,7 @@ previous image tag, no down-migration, seconds.
 4. **Chart 0.1.0 spike** in a test namespace against the pilot image —
    audit doc's CRITICAL items + init Job + security contexts from day one.
    Exit: pods Ready, upload survives restart, deploy under load is clean.
-   *Chart scaffolded 2026-07-01 under `helm/arches/` (lint + render
+   *Chart scaffolded 2026-07-01 as CLI package data (lint + render
    validated); cluster spike pending.*
 5. **Staging namespace** with Flux image automation end-to-end. Exit:
    merge to pilot main → staging updated with no human step.

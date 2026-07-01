@@ -1,0 +1,11 @@
+apiVersion: v2
+name: arches-dev-services
+description: >-
+  In-cluster backing services (PostGIS, Elasticsearch, RabbitMQ) for dev
+  and ephemeral Arches namespaces. Mirrors the toolkit compose.yaml
+  infrastructure layer. Deliberately minimal — single replicas, no HA, no
+  backups. NOT for staging or production: those bring managed services,
+  operators, or properly-sized subcharts (docs/k8s-deployment.md).
+type: application
+version: 0.1.0
+appVersion: "dev"

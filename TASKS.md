@@ -1027,7 +1027,7 @@ missing from `prod`, `nginx`-target static/media paths, build-time
 endpoint, stdout logging. Sequence: close those gaps → run-mode selector
 → `project-ci.yml` → chart 0.1.0 in `helm-arches`.
 
-**Scaffolds landed 2026-07-01:** chart 0.1.0 under [helm/arches/](helm/arches/)
+**Scaffolds landed 2026-07-01:** chart 0.1.0 under [cli/src/arches_toolkit/_data/helm/arches/](cli/src/arches_toolkit/_data/helm/arches/) (shipped as CLI package data so `deploy` is self-contained)
 (full topology: web/worker/api/static/cantaloupe, hook init Job, security
 contexts, sizing defaults; lint + render validated, cluster spike pending;
 developed here interim — promote to `helm-arches` before first release)
@@ -1036,6 +1036,13 @@ and the reusable [project-ci.yml](.github/workflows/project-ci.yml) /
 (gha build cache, `main-<bid>` + semver tags, Trivy/SBOM; pilot
 validation pending). [chart-lint.yml](.github/workflows/chart-lint.yml)
 keeps the chart rendering in CI.
+
+**`deploy` command landed 2026-07-01:** `arches-toolkit deploy [env]` —
+direct helm mode for dev namespaces (bundled `arches-dev-services` chart
+for in-cluster postgres/es/rabbitmq, generated gitignored secrets,
+Flux-ownership guardrail, prod-direct refusal); gitops mode for
+staging/prod designed but not implemented (prints the manual path). See
+docs/k8s-deployment.md § single-command deploys.
 
 - Helm chart rework in the `helm-arches` repo (charts deliberately do NOT
   live in the toolkit — the prototype `chart/` seeded here was removed
