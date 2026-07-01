@@ -264,6 +264,7 @@ previous image tag, no down-migration, seconds.
 - [ ] resource requests/limits set for web/worker/static/cantaloupe with starting numbers recorded in values
 - [ ] logs on stdout, scraped by the cluster stack; DEBUG off; `ALLOWED_HOSTS`/CSRF origins from values
 - [ ] staging namespace runs the identical chart with only values differing
+- [ ] operational-access runbook verified: `kubectl exec` manage commands work on a hardened pod; `readOnlyRootFilesystem` break-glass toggle tested
 
 ## Where the work lands
 
@@ -290,6 +291,39 @@ previous image tag, no down-migration, seconds.
    runbooks, semver promotion of the pilot. Exit: checklist above green.
 7. **Migrate remaining projects one at a time**, old chart pinned until
    each project's image is toolkit-built (audit doc's sequence).
+
+## Operational access and emergency fixes
+
+The hardening above does **not** remove `kubectl exec`. The prod image is
+debian-slim (distroless is Phase 3, and this is one reason to be
+deliberate about it), so a shell as the `app` user is always available:
+
+```sh
+kubectl -n <ns> exec -it deploy/<release>-web -- python manage.py <cmd>
+```
+
+What each guardrail actually blocks, and what it leaves open:
+
+| Action on a pod | Works? | Why |
+|---|---|---|
+| `manage.py` commands touching DB / ES / uploads (`migrate`, `es reindex_database`, `packages import…`, `shell`, custom commands) | ✅ | read-only FS blocks *filesystem* writes, not running code; `uploadedfiles` stays RW, `/tmp` is a writable emptyDir, `PYTHONDONTWRITEBYTECODE` already avoids `.pyc` writes |
+| Manual `migrate` in an incident | ✅ | the single-writer invariant is about pods not *auto*-migrating at boot; a deliberate operator is the escape hatch, and the release Job re-running later is a no-op |
+| Hot-patching a `.py` file / `uv pip install` into the pod | ❌ | `/app` and `/venv` are read-only. Deliberate: with ≥2 replicas an in-pod edit gives split behaviour and dies on the next reschedule anyway. The supported emergency path is the pipeline itself — the speed budget (warm CI build + Flux bump in minutes, rollback = tag revert) exists precisely so this is fast enough |
+| `collectstatic` / frontend_configuration regen on a pod | ❌ | build-time concerns now; there is no shared volume to write into |
+
+Break-glass, in escalating order:
+
+1. **Exec runbook** (above) — data/ops commands, no configuration change.
+   For heavy jobs (`reindex_database` on a large DB), prefer a one-off pod
+   from the same image + env (`kubectl run` / a chart-shipped `manage` Job
+   template) over exec'ing into a serving gunicorn pod competing for its
+   memory limits.
+2. **`readOnlyRootFilesystem` values toggle** (per deployment, default
+   `true`). If in-pod mutation is ever genuinely unavoidable, flipping it
+   is one loud, reviewable, revertible values commit — not a redeploy of a
+   different chart.
+3. **Pipeline fix** — the actual fix: commit, warm build, Flux bump; or
+   `helm rollback` / tag revert to get back to known-good first.
 
 ## Rejected / deferred
 
