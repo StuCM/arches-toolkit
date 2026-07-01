@@ -10,7 +10,7 @@ See [PLAN.md](PLAN.md) for design context.
 
 | Stage | State | Outstanding |
 |---|---|---|
-| 0 — Foundation | partial | repo not pushed to GHE/GitHub; no LICENSE / CODEOWNERS; no `ci.yml` lint workflow |
+| 0 — Foundation | partial | repo not pushed to GHE/GitHub; no LICENSE / CODEOWNERS |
 | 1 — Fork inventory | done (modulo upstream PRs) | bucket-A upstream PRs not opened |
 | 2 — Base image pipeline | done w/ caveats | base-image weekly cron not scheduled; cosign signing scaffolded but disabled |
 | 3 — Project Dockerfile | done | (Dockerfile relocated under `cli/src/arches_toolkit/_data/`) |
@@ -35,8 +35,12 @@ See [PLAN.md](PLAN.md) for design context.
 - [ ] Add `CODEOWNERS` (start minimal — primary maintainers)
 
 ### 0.3 — CI scaffolding
-- [ ] `.github/workflows/ci.yml` — lints markdown, validates YAML, runs `hadolint` on any `Dockerfile` once present
-- [ ] Acceptance: PR against main runs lint job and passes on empty tree
+- [x] `.github/workflows/ci.yml` — runs the CLI test suite, validates YAML
+  (yamllint), lints markdown (markdownlint-cli2, pinned), runs `hadolint` on
+  both Dockerfiles. Lint configs (`.yamllint.yml`, `.markdownlint.json`) are
+  lenient on prose style but enforce structural correctness; verified green
+  on the current tree.
+- [x] Acceptance: PRs against main now run test + lint jobs.
 
 ---
 

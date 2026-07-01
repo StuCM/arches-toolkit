@@ -1,0 +1,24 @@
+# Lenient yamllint config — structural correctness without prose-style nags.
+extends: default
+
+ignore: |
+  cli/.venv/
+  **/node_modules/
+
+rules:
+  line-length: disable
+  document-start: disable
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  empty-lines:
+    max: 2
