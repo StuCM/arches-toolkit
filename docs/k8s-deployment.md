@@ -164,6 +164,72 @@ PodDisruptionBudget `minAvailable: 1` on web; and the policy that
 drop-and-rename in one release). That policy is documentation + review
 discipline, not tooling; write it into the project CI docs.
 
+## Resource sizing — requests, limits, and the burst problem
+
+The recurring failure mode to design out: limits set high "to be safe" →
+nodes fill up while sitting mostly idle; limits set low → OOM kills the
+moment the pod is actually used. The resolution is that requests and
+limits answer different questions and must stop being set together:
+
+- **Requests are what the scheduler bin-packs on.** Set them to *typical
+  steady-state* usage. Low steady usage ⇒ low requests ⇒ dense packing —
+  the node no longer "fills up" with reserved-but-unused capacity.
+- **Limits are the runtime ceiling.** Memory limit = the peak the pod must
+  survive; spikes borrow the node's idle headroom (which low steady usage
+  is precisely what creates). This is the Burstable QoS class, and it is
+  the intended tool for low-usually/high-sometimes workloads.
+- **CPU: requests yes, limits none** (or very generous). CPU is
+  compressible — contention means throttling, never a crash — and CPU
+  limits on gunicorn/celery just add tail latency. Crashes only ever come
+  from memory.
+- **Memory: keep limit ≤ ~2× request.** Bounds node overcommit so
+  simultaneous bursts degrade instead of triggering eviction storms. The
+  exception is Elasticsearch: JVM heap + off-heap is constant, so set
+  memory request = limit (heap at ~50% of it) and let nothing else apply.
+
+Just as important: **shrink the peak instead of budgeting for it.**
+Arches pod memory is nearly deterministic once three things land:
+
+1. Web = `gunicorn workers × per-worker footprint` (~350–450Mi for a
+   loaded Arches project). Worker count comes from values (image-contract
+   gap 5), so the limit can sit close to the request instead of guessing.
+2. Worker spikes come from known-heavy tasks (package imports,
+   `reindex_database`), not steady celery traffic. Recycle workers
+   (`--max-tasks-per-child` / `worker_max_memory_per_child`) and run the
+   heavy operations as one-off Jobs (the ops-pod pattern from the
+   operational-access section) or a dedicated queue with its own sizing —
+   don't inflate the always-on worker's limit to fit a monthly import.
+3. Load growth is handled by HPA replicas (horizontal), never by raising
+   one pod's ceiling (vertical). HPA targets utilisation *of requests*,
+   which is one more reason requests must reflect real usage.
+
+Starting numbers (prod; tune from observed usage, they are deliberately
+conservative on requests and honest on limits):
+
+| Pod | CPU req | CPU limit | Mem req | Mem limit | Notes |
+|---|---|---|---|---|---|
+| web | 500m | — | 1.2Gi | 2Gi | 3 gunicorn workers; scale via HPA 2→4 at ~75% CPU |
+| worker | 250m | — | 768Mi | 1.5Gi | recycling on; heavy tasks routed to Jobs |
+| static (nginx) | 50m | — | 32Mi | 128Mi | |
+| cantaloupe | 250m | — | 1Gi | 2Gi | set JVM heap explicitly; JVM = request≈limit rules apply |
+| init Job | 250m | — | 1Gi | 2Gi | short-lived; migrations can be hungry |
+| elasticsearch | 1 | — | 2Gi | 2Gi | request = limit; heap 1g (staging); prod sized to index |
+| postgres | 500m | — | 1Gi | 2Gi | prod: managed / CNPG-sized instead |
+| rabbitmq | 100m | — | 256Mi | 512Mi | |
+
+**Dev/staging profile:** same chart, same *shape* (limits still ≤2×
+requests), different values — single replicas, no HPA, requests roughly
+halved. An OOM restart on staging is cheap feedback that a limit is
+mis-set; treat it as tuning input, not an incident. Don't run staging
+with prod-sized requests "for realism" — parity lives in topology, not
+capacity (see backing-services section).
+
+**Converging the numbers:** run VPA (or Goldilocks) in
+recommendation-only mode on staging, compare against these tables after a
+few weeks of real use, and record the adopted values in the project's
+values files. Namespace ResourceQuotas on dev clusters keep an
+experiment from eating the node regardless of per-pod settings.
+
 ## Storage
 
 | Path | Local dev | k8s |
