@@ -347,7 +347,76 @@ start, and right now it looks broken even though it isn't.
 
 ## Open design problem: ARCHES_SRC bind mount shadows base-image patches
 
-**Status:** unresolved. Affects `arches-toolkit dev` with `ARCHES_SRC` set.
+**Status:** model resolved 2026-06-27 — *no fork; upstream + patches is
+authoritative everywhere, including the bind mount.* Mechanism designed
+below, not yet implemented.
+
+**Resolved model.** There is no F&T fork. The runtime is always upstream
+`archesproject/arches` at a ref **+ `git am docker/base/patches/*`**.
+Patches are the only divergence and are apply/removable; per-project base
+images are built (and pinned) from upstream+patches so a project never
+drifts until it rebuilds. The corollary that makes `ARCHES_SRC` first-class
+rather than an edge case: a host clone bind-mounted over `/opt/arches`
+**must carry the same patch series**, or you live-edit a different arches
+than you deploy.
+
+**Decided mechanism — isolated git worktree at the pinned base ref; never
+touch the user's working branch.**
+
+The bind mount points at a toolkit-managed *worktree*, not the user's
+primary checkout. `ARCHES_SRC` resolves to a worktree of the same repo
+(shared `.git`, second checked-out path) created at the project's
+`ARCHES_REF` with the patch series applied there. Running the stack has
+**zero** effect on the branch the dev actually works on — no commits land
+in their history, addressing the "I don't want commits just to run the
+container" objection. The worktree being checked out *at the pinned base*
+also handles the "apply patches N commits back" case exactly: patches are
+applied at the commit they were cut against, not onto a moved-on HEAD.
+
+1. `arches-toolkit arches-src setup [--ref <ARCHES_REF>] [path]` — creates
+   the worktree at the pinned ref and applies `docker/base/patches/*`
+   there (commits inside the throwaway worktree are invisible to the user's
+   branch; `--3way` for drift tolerance). Sets `ARCHES_SRC` to the worktree
+   path. Idempotent (already-set-up → no-op / re-sync).
+2. `arches-toolkit arches-src remove` — deletes the worktree; the user's
+   primary checkout was never modified, so removal is clean (no reverse-
+   apply against possibly-edited files).
+3. `dev` with `ARCHES_SRC` set runs a consistency check (worktree present,
+   at the expected ref, patches applied); if not, it **warns loudly** with
+   the one `arches-src setup` command rather than mutating anything. Opt-in
+   `--apply-patches` / `.env` flag to auto-setup.
+4. Authoring round-trip: the dev edits core *in the worktree* (the live
+   source for the container), then `git format-patch` (or an `arches-src
+   export-patches` helper) regenerates `docker/base/patches/` — new toolkit
+   changes flow straight back into the patch series. Their primary branch
+   stays uninvolved.
+
+Why not `git am`/`git apply` onto the user's own checkout: `git am`
+pollutes their branch history and breaks on rebase; plain `git apply` to
+the working tree intermixes toolkit patches with the dev's own edits in
+`git status`, which is exactly what you don't want while live-editing core.
+The worktree keeps patch state cleanly separated *and* leaves the working
+branch untouched. (`git am` is still used inside the ephemeral base-image
+build, where commits are invisible and 3-way robustness is free.)
+
+Tier-1 dependency note: this is part of *finishing the local dev
+workflow*, because core-dev via `ARCHES_SRC` is a daily workflow here, not
+an edge case. The immediate prerequisite either way is that the patch
+series and any lingering fork description agree on the same arches —
+today the fork branch (`docker/8.1`, based on `dev/8.1.x` + obsolete
+cruft) does **not** match what the base builds (`stable/8.1.2` + the single
+curated patch); the resolved model retires the fork, so the patch series
+becomes the sole description.
+
+**Rejected mechanisms.** Doc-only (relies on discipline; the daily-use
+reality makes silent drift too likely). Patch-overlay `.pth` shim (cleanest
+semantics but fiddly, and the bind mount is the simple mental model devs
+want). Eliminate-patches-by-upstreaming (the end goal, not a near-term
+mechanism).
+
+### Original problem statement (kept for context)
+
+Affects `arches-toolkit dev` with `ARCHES_SRC` set.
 
 The `ARCHES_SRC` overlay (`compose.arches-src.yaml`) bind-mounts a host
 clone of arches over `/opt/arches`. Because bind mounts replace directory
@@ -769,6 +838,93 @@ freedoms without the copies.
 
 ---
 
+## Design proposal: project service topology + run mode
+
+**Status:** designed 2026-06-27, not implemented. Overlaps the
+native-compose and recipe-pinning proposals above — same `.env`-managed,
+package-only, version-aware machinery. Sequence after the native-compose
+refactor (this builds on `COMPOSE_PROJECT_NAME` / `arches-toolkit compose`).
+
+**The asks.** (1) Run a project *without* some bundled services
+(cantaloupe today). (2) *Swap* a service for an external/different one
+(Elasticsearch is expected to be removed or replaced upstream). (3) Switch
+a project into *production mode locally* to debug it as it will actually
+run.
+
+**Today: none of these are first-class.** No compose `profiles:` anywhere,
+so every `up` brings the whole stack. `dev` hardcodes `compose.yaml +
+compose.dev.yaml`, expects all four readiness milestones (infra → init →
+webpack → web), and the arches services carry hard `depends_on:
+{condition: service_healthy}` edges to db/es/rabbitmq. `settings.py` reads
+`ESHOST` / `RABBITMQ_URL` / `CANTALOUPE_HTTP_ENDPOINT` from env (so
+*pointing* at an external service already works), but nothing stops the
+bundled container from also running, and the depends_on gate still waits
+on the local copy. `compose.extras.yaml` only *adds* services.
+
+**Design.**
+
+1. **Optional services via compose profiles + a managed `COMPOSE_PROFILES`
+   line in `.env`.** Tag optional services with `profiles:`; a project
+   declares what it runs in one toolkit-managed `.env` line (same pattern
+   as the proposed `COMPOSE_PROJECT_NAME` — no files copied into the tree).
+   - *Cantaloupe is the clean first toggle* — genuinely optional (IIIF
+     image server), nothing else hard-depends on it. `profiles: [iiif]`
+     (or `[cantaloupe]`), off by default or on by default per project.
+   - A toggle command (`arches-toolkit service enable/disable <name>`, or
+     folding into a project-config edit) maintains the `COMPOSE_PROFILES`
+     line.
+
+2. **Swappable backends, not just optional services — built for ES going
+   away.** Treat the search backend (and by extension the broker/IIIF
+   endpoints) as a *slot*, not a fixed service. A project either runs the
+   bundled service (profile on) or points `ESHOST`/etc. at an external one
+   (profile off + env). Two structural requirements this forces:
+   - **`depends_on` must be profile-aware.** Compose only starts a service
+     in an active profile; a hard `depends_on` on a profiled-out service
+     errors. The arches services' dependency edges to es/rabbitmq must be
+     gated the same way (or moved to a healthcheck-on-connect model) so a
+     project that runs ES externally — or not at all — still boots.
+   - **Search backend is version-conditional ⇒ this belongs with the
+     version-keyed recipe selection above.** When upstream Arches drops or
+     replaces Elasticsearch, that's a different *topology*, not just a flag:
+     a different compose overlay (no `elasticsearch` service, different
+     init `es setup_indexes` step) selected by the project's arches
+     version. This is exactly the "version-conditional behaviour" the
+     recipe-pinning note said to design for before it scatters — the ES
+     removal is the concrete forcing case. Express it as a version-scoped
+     compose overlay (`compose.arches-<ver>.yaml`) resolved from the
+     declared version, *not* an `if version` branch in the base compose.
+
+3. **Run-mode selector for prod-debug.** `arches-toolkit dev --mode prod`
+   (or a sibling `up --prod`) selects overlays: dev =
+   `compose.yaml + compose.dev.yaml`; prod = `compose.yaml` alone (gunicorn,
+   prod Dockerfile target, no bind mount / webpack / debugpy), with a
+   readiness poll that drops the webpack milestone. Beyond debugging, this
+   is the local exercise of the `prod`/`nginx` targets that the Phase 2
+   Helm rework needs validated anyway.
+
+**Caveats / non-goals.**
+- ES and RabbitMQ are not trivially "off" *today* — search and the celery
+  broker depend on them. Profile-gating them means "run external instead of
+  local," not "run nothing," until the upstream ES removal lands a topology
+  that genuinely doesn't need a search container.
+- Keep the package-only invariant: profiles and mode are selected by
+  toolkit-managed `.env` config + version resolution, never by copying
+  compose files into the project.
+
+**Ties to other proposals.** `COMPOSE_PROFILES` sits beside
+`COMPOSE_PROJECT_NAME` (native-compose); version-scoped service overlays
+are the same resolver as the Dockerfile/compose cascade (recipe-pinning);
+`arches-toolkit compose <args>` is the manual `stop <svc>`/`start <svc>`
+escape hatch under the declarative profile config.
+
+**Rejected: per-service on/off by passing service names to `dev`.** Fights
+the readiness poll and the depends_on gates, and encodes the choice in a
+shell invocation instead of committed project config. Profiles make "what
+this project runs" declarative and shareable.
+
+---
+
 ## Smoke test outcome (2026-06-11, arches dev/8.2.x)
 
 Full lifecycle exercised on a fresh project against an 8.2 base image:
@@ -784,14 +940,16 @@ what the app-harness backlog idea would catch in app CI).
 
 Follow-ups not yet done:
 
-- **Idempotent init bootstrap.** init's cold/warm probe (any
-  `django_migrations` row) means a bootstrap that fails partway leaves a
-  DB the warm path never repairs (cache table / ES indexes / System
-  Settings seed skipped forever); recovery requires knowing to wipe the
-  volume. Better: drop the probe, make every step idempotent (migrate and
-  createcachetable already are; the settings seed has a graph-existence
-  check; `es setup_indexes` needs verifying) and run them all every boot —
-  self-healing at the cost of seconds.
+- ~~**Idempotent init bootstrap.**~~ — resolved 2026-06-27. Dropped the
+  dev `init` cold/warm `django_migrations` probe; every step now runs on
+  every boot (migrate / createcachetable / es setup_indexes / graph-guarded
+  System Settings seed / frontend_configuration regen), so a boot that
+  fails partway self-heals on the next instead of stranding the DB in the
+  warm path. `es setup_indexes` idempotency confirmed against arches
+  `stable/8.1.2` (`SearchEngine.create_index(..., ignore_status=400)`
+  swallows the index-exists 400). Dev now matches the always-run prod init
+  (minus collectstatic, plus the dev-only regen). Docs in
+  `compose-deep-dive.md` updated.
 - ~~Cold-start signposting~~ — resolved 2026-06-11 by the detached `dev`
   readiness milestones.
 

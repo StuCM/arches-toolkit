@@ -160,7 +160,8 @@ def _run_npm_install(project_root: Path, script: str) -> None:
         raise typer.Exit(completed.returncode)
 
 
-# Mirrors the init service's warm-start REGEN in compose.dev.yaml — keep in sync.
+# Mirrors the init service's frontend_configuration REGEN in compose.dev.yaml
+# — keep in sync.
 FRONTEND_REGEN_SNIPPET = """\
 import django
 django.setup()
@@ -195,8 +196,9 @@ def _regen_frontend_configuration(project_root: Path) -> None:
 def _run_migrate(project_root: Path) -> None:
     """Apply any pending Django migrations — a fast no-op when there are none.
 
-    Newly installed apps ship migrations that nothing else applies on a
-    running stack (init only migrates on cold start), so install owns it.
+    Newly installed apps ship migrations that nothing else applies on an
+    already-running stack (init migrates on boot, but install must not require
+    a restart cycle to take effect), so install owns it.
     """
     argv = cw._compose_base_argv(project_root) + [
         "exec", "-T", "web", "python", "manage.py", "migrate", "--noinput",

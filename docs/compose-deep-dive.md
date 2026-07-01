@@ -70,7 +70,7 @@ All four are healthchecked; init and Arches services `depends_on: service_health
 
 | Service | Role | Writes to fs? | Command |
 |---|---|---|---|
-| `init` | One-shot setup | Yes (rw mounts) | `migrate` → `createcachetable` (→ `collectstatic` in prod) → `es setup_indexes` → conditional System Settings seed. Dev wraps this in a warm-start probe — see [Warm-start probe](#warm-start-probe) and [First-boot seed](#first-boot-seed). |
+| `init` | One-shot setup | Yes (rw mounts) | `migrate` → `createcachetable` (→ `collectstatic` in prod) → `es setup_indexes` → conditional System Settings seed (→ `frontend_configuration` regen in dev). Every step is idempotent and runs on every boot — see [Idempotent bootstrap](#idempotent-bootstrap-no-probe) and [First-boot seed](#first-boot-seed). |
 | `web` | HTTP (user-facing) | No (ro peers) | `gunicorn` (prod) / `runserver + debugpy` (dev) |
 | `api` | HTTP (API — separate port/worker pool) | No | `gunicorn` (prod) / `runserver` (dev) |
 | `worker` | Celery worker | No | `celery worker` |
@@ -219,22 +219,19 @@ The data is derived from `INSTALLED_APPS`, URL patterns, and each Arches app's `
 
 ## Dev overlay specifics
 
-### Warm-start probe
+### Idempotent bootstrap (no probe)
 
-Dev `init` wraps its body in a pre-Django SQL probe so warm restarts don't pay the full Django-boot cost. Implemented in [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) on the `init` service as an inline shell + `psycopg2` one-liner.
+Dev `init` runs every bootstrap step on every boot — there is no cold/warm probe. Each step is idempotent, so a boot that fails partway is repaired by the next boot rather than skipped forever. Implemented in [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) on the `init` service.
 
-The probe connects with the same `PG*` env vars the Django app would use and runs `SELECT 1 FROM django_migrations LIMIT 1`. If a row comes back, init echoes a skip message and exits zero; otherwise it falls through to `migrate --noinput` + `createcachetable` as before.
+Every boot runs, in order:
 
-| Scenario | Probe result | What init does |
-|---|---|---|
-| First-ever `dev up` (fresh `postgres_data` volume) | Connection succeeds but `django_migrations` doesn't exist → exception → exit 1 | Full migrate + createcachetable |
-| Warm restart after a clean stop | Rows present → exit 0 | Skip (sub-second) |
-| After `arches-toolkit setup-db` | `setup_db --force` drops the DB, so `django_migrations` is empty → exit 1 | Full migrate + createcachetable |
-| DB up but wrong credentials | psycopg2 raises on connect → exit 1 | Full migrate (which will also fail — same failure mode as before) |
+1. `migrate --noinput` — applies pending migrations; a fast no-op when there are none (so a new migration file in code *is* picked up automatically — no more silent skip).
+2. `createcachetable` — creates the cache table only if absent.
+3. `es setup_indexes` — idempotent; `SearchEngine.create_index(..., ignore_status=400)` makes re-creation on an existing cluster a no-op.
+4. System Settings seed — gated on a `GraphModel` presence check (see [First-boot seed](#first-boot-seed)).
+5. `frontend_configuration` regen — regenerated each boot so webpack picks up app paths after release↔develop install changes; non-fatal on failure.
 
-**Known tradeoff:** if you add a new Django migration file in code, the probe still says "initialized" and skips it. To apply: `arches-toolkit manage migrate` explicitly, or wipe via `setup-db` if it's safe to lose data. Not dangerous — just silent. The original arches-quartz entrypoint had the same property.
-
-**Prod keeps the always-run init** (see [compose.yaml:128-134](../cli/src/arches_toolkit/_data/compose.yaml#L128-L134)). In prod the expensive step is `collectstatic`, which wants a different gate (source-mtime stamp), and prod restarts are rare enough that the extra few seconds don't justify the added path.
+**Why no probe.** The previous design probed `SELECT 1 FROM django_migrations` and, on a hit, took a "warm path" that skipped createcachetable / es setup_indexes / the seed. A bootstrap that died after the first migration wrote a row left the DB permanently in the warm path — cache table, ES indexes, and System Settings seed never created, recoverable only by wiping `postgres_data`. Running every idempotent step every boot trades a few seconds of Django boot on warm starts for self-healing. This matches the prod init in [compose.yaml](../cli/src/arches_toolkit/_data/compose.yaml) (which always ran every step); dev differs only in skipping `collectstatic` and adding the `frontend_configuration` regen.
 
 ### First-boot seed
 
@@ -243,7 +240,7 @@ After `migrate`/`createcachetable`, init runs two more steps so a fresh project 
 1. **`python manage.py es setup_indexes`** — creates `<prefix>_terms`, `<prefix>_concepts`, `<prefix>_resources` if absent. Arches calls these via `SearchEngine.create_index(..., ignore_status=400)`, so re-running on an existing cluster is a no-op.
 2. **System Settings seed** — checks `GraphModel` for the System Settings graphid (`ff623370-fa12-11e6-b98b-6c4008b05c4c`); if missing, imports `Arches_System_Settings_Model.json`, publishes the graph, and imports `Arches_System_Settings.json` with `overwrite=overwrite`. If the row is present, the step prints "system settings graph present; skipping seed" and exits.
 
-Both branches live in [compose.yaml](../cli/src/arches_toolkit/_data/compose.yaml) (prod path) and [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) (cold-start branch of the warm-start probe). The dev overlay's warm-start branch skips them — once seeded, they don't need re-checking.
+Both steps live in [compose.yaml](../cli/src/arches_toolkit/_data/compose.yaml) (prod) and [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) (dev), and both run on every boot — their presence checks (`ignore_status=400` for indexes, the `GraphModel` lookup for the seed) make re-running cheap.
 
 #### Why this is here, not in `setup-db`
 
@@ -332,7 +329,7 @@ The Stage 6 patch isn't applied to the image. Check that the base image tag in u
 
 ### Init hangs on `collectstatic`
 
-Dev overlay skips `collectstatic` — the `init` service's command in [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) only runs `migrate` + `createcachetable` (via the warm-start probe). If you're seeing this in dev, your compose file is out of date. In prod, `collectstatic` walking ~93k files takes 30-60s — normal.
+Dev overlay skips `collectstatic` — the `init` service's command in [compose.dev.yaml](../cli/src/arches_toolkit/_data/compose.dev.yaml) runs `migrate` + `createcachetable` + `es setup_indexes` + seed + `frontend_configuration` regen, but never `collectstatic`. If you're seeing this in dev, your compose file is out of date. In prod, `collectstatic` walking ~93k files takes 30-60s — normal.
 
 ### `uv sync` into running container has no effect
 
