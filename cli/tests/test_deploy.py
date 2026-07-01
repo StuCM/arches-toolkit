@@ -180,3 +180,138 @@ def test_requires_project_env(tmp_path: Path) -> None:
             dry_run=True,
             render=False,
         )
+
+
+# --------------------------------------------------------------------------- #
+# GitOps promotion
+# --------------------------------------------------------------------------- #
+
+HELMRELEASE = """\
+# HelmRelease for myproj — hand-maintained; comments must survive edits.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: myproj
+spec:
+  values:
+    image:
+      repository: ghcr.io/example/arches-myproj
+      tag: main-1  # bumped by arches-toolkit deploy
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: myproj
+"""
+
+
+@pytest.fixture()
+def fluxcd_repo(tmp_path: Path) -> Path:
+    """Local bare repo standing in for the fluxcd repo."""
+    import subprocess
+
+    bare = tmp_path / "fluxcd.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)], check=True, capture_output=True)
+    seed = tmp_path / "seed"
+    subprocess.run(["git", "clone", str(bare), str(seed)], check=True, capture_output=True)
+    target = seed / "namespaces" / "myproj-staging"
+    target.mkdir(parents=True)
+    (target / "helmrelease.yaml").write_text(HELMRELEASE, encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+        "PATH": __import__("os").environ["PATH"],
+    }
+    subprocess.run(["git", "add", "-A"], cwd=seed, check=True, capture_output=True, env=env)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=seed, check=True, capture_output=True, env=env)
+    subprocess.run(["git", "push", "origin", "main"], cwd=seed, check=True, capture_output=True, env=env)
+    return bare
+
+
+def _write_gitops_config(project: Path, bare: Path, **extra) -> None:
+    (project / "deploy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "environments": {
+                    "staging": {
+                        "mode": "gitops",
+                        "gitops": {
+                            "repo": str(bare),
+                            "file": "namespaces/myproj-staging/helmrelease.yaml",
+                            **extra,
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _promoted_file(bare: Path, ref: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "show", f"{ref}:namespaces/myproj-staging/helmrelease.yaml"],
+        cwd=bare, check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def test_gitops_promotion_pushes_deploy_branch(project: Path, fluxcd_repo: Path) -> None:
+    _write_gitops_config(project, fluxcd_repo)
+    deploy(
+        environment="staging", project_root=project, namespace="", context="",
+        image_repository="", tag="main-99", force=False, dry_run=False, render=False,
+    )
+    content = _promoted_file(fluxcd_repo, "deploy/myproj-staging-main-99")
+    assert "tag: main-99" in content
+    assert "hand-maintained; comments must survive" in content
+    assert "bumped by arches-toolkit deploy" in content  # inline comment kept
+    assert "kind: ImagePolicy" in content  # second document intact
+
+
+def test_gitops_direct_push_lands_on_base_branch(project: Path, fluxcd_repo: Path) -> None:
+    _write_gitops_config(project, fluxcd_repo, push="direct")
+    deploy(
+        environment="staging", project_root=project, namespace="", context="",
+        image_repository="", tag="main-42", force=False, dry_run=False, render=False,
+    )
+    assert "tag: main-42" in _promoted_file(fluxcd_repo, "main")
+
+
+def test_gitops_requires_explicit_tag(project: Path, fluxcd_repo: Path) -> None:
+    _write_gitops_config(project, fluxcd_repo)
+    with pytest.raises(typer.BadParameter, match="--tag"):
+        deploy(
+            environment="staging", project_root=project, namespace="", context="",
+            image_repository="", tag="", force=False, dry_run=False, render=False,
+        )
+
+
+def test_gitops_bad_tag_path_is_loud(project: Path, fluxcd_repo: Path) -> None:
+    _write_gitops_config(project, fluxcd_repo, tagPath="spec.values.nope.tag")
+    with pytest.raises(typer.BadParameter, match="tagPath"):
+        deploy(
+            environment="staging", project_root=project, namespace="", context="",
+            image_repository="", tag="main-2", force=False, dry_run=False, render=False,
+        )
+
+
+def test_gitops_noop_when_already_at_tag(project: Path, fluxcd_repo: Path, capsys: pytest.CaptureFixture) -> None:
+    _write_gitops_config(project, fluxcd_repo)
+    deploy(
+        environment="staging", project_root=project, namespace="", context="",
+        image_repository="", tag="main-1", force=False, dry_run=False, render=False,
+    )
+    assert "nothing to do" in capsys.readouterr().out
+
+
+def test_gitops_dry_run_touches_nothing(project: Path, fluxcd_repo: Path, capsys: pytest.CaptureFixture) -> None:
+    _write_gitops_config(project, fluxcd_repo)
+    deploy(
+        environment="staging", project_root=project, namespace="", context="",
+        image_repository="", tag="main-5", force=False, dry_run=True, render=False,
+    )
+    out = capsys.readouterr().out
+    assert "would set" in out
+    assert "tag: main-1" in _promoted_file(fluxcd_repo, "main")  # unchanged

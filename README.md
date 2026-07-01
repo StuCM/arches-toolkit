@@ -192,7 +192,7 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | `arches-toolkit init <name>` | Scaffold a new Arches project (one-time per project) |
 | `arches-toolkit create <kind> <name>` | Scaffold a widget / plugin / component / app / etc. (see [docs/create.md](docs/create.md)) |
 | `arches-toolkit dev` | Start the dev stack detached with readiness milestones; edits live-reload via bind mounts |
-| `arches-toolkit deploy [env]` | Deploy to k8s: `dev` = direct helm install with bundled dev services; `staging`/`prod` = GitOps path (see [docs/k8s-deployment.md](docs/k8s-deployment.md)) |
+| `arches-toolkit deploy [env]` | Deploy to k8s: `dev` = direct helm install with bundled dev services; `staging`/`prod` = GitOps promotion — writes the tag bump into the fluxcd repo and pushes a PR branch (see [docs/k8s-deployment.md](docs/k8s-deployment.md)) |
 | `arches-toolkit setup-db [--dev-users] [--yes]` | **Destructive**: `setup_db --force` — drops and rebuilds the DB. Not needed for first boot (init seeds idempotently); use to wipe data or to seed `--dev-users`. `--yes` skips the confirm |
 | `arches-toolkit add-app` | Add an Arches app to `apps.yaml` |
 | `arches-toolkit sync-apps` | Project `pyproject.toml`, INSTALLED_APPS block + managed npm entries (`npm: true` apps) from `apps.yaml` |

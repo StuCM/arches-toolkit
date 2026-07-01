@@ -1040,9 +1040,12 @@ keeps the chart rendering in CI.
 **`deploy` command landed 2026-07-01:** `arches-toolkit deploy [env]` —
 direct helm mode for dev namespaces (bundled `arches-dev-services` chart
 for in-cluster postgres/es/rabbitmq, generated gitignored secrets,
-Flux-ownership guardrail, prod-direct refusal); gitops mode for
-staging/prod designed but not implemented (prints the manual path). See
-docs/k8s-deployment.md § single-command deploys.
+Flux-ownership guardrail, prod-direct refusal) and gitops promotion for
+staging/prod (clones the fluxcd repo, comment-preserving tag bump in the
+HelmRelease, pushes a deploy/ branch with PR link or direct; explicit
+--tag required). Namespace onboarding (first-time HelmRelease + SOPS +
+images-repo wiring) still manual. See docs/k8s-deployment.md
+§ single-command deploys.
 
 - Helm chart rework in the `helm-arches` repo (charts deliberately do NOT
   live in the toolkit — the prototype `chart/` seeded here was removed

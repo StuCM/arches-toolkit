@@ -25,6 +25,9 @@ classifiers = [
 dependencies = [
     "typer>=0.12",
     "pyyaml>=6.0",
+    # Round-trip YAML for gitops promotion: fluxcd files are hand-maintained,
+    # so edits must preserve comments and formatting.
+    "ruamel.yaml>=0.18",
     "tomlkit>=0.13",
     "rich>=13.7",
     "httpx>=0.27",

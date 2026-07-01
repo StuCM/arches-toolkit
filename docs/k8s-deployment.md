@@ -303,18 +303,49 @@ resolved).
 
 ## Single-command deploys — `arches-toolkit deploy <env>`
 
-**Status:** direct mode implemented 2026-07-01; gitops mode designed, not
-implemented.
+**Status:** direct mode and gitops promotion implemented 2026-07-01;
+namespace *onboarding* (first-time HelmRelease + SOPS secrets + images-repo
+ConfigMaps, the `make_arches_8.py` flow) remains manual/designed.
 
-The promotion pipeline above spans repos (project → fluxcd → images), which
-is correct for staging/prod but heavy for "just put my branch on a dev
-namespace". `deploy` gives one front door with per-environment *modes*, so
-convenience never bypasses GitOps where GitOps is the contract:
+The deploy process spans repos — the image builds in the project repo, but
+the deploy itself is a commit in the fluxcd repo, with the images repo and
+SOPS alongside. `deploy` is the one front door that does that cross-repo
+choreography, with per-environment *modes* so convenience never bypasses
+GitOps where GitOps is the contract:
 
 | Mode | Environments | What `deploy` does |
 |---|---|---|
 | **direct** | dev, ephemeral/test namespaces | `helm upgrade --install` of the packaged charts against the kube context — the k8s sibling of `arches-toolkit dev` |
-| **gitops** | staging, prod | *Not yet implemented.* Deploying **is** committing: the command will write the tag/values bump into the fluxcd repo (SOPS-encrypting new secrets) and open the PR; Flux applies. Until then it prints the manual path and exits |
+| **gitops** | staging, prod | Deploying **is** committing: clones the configured fluxcd repo, bumps the image tag inside the HelmRelease values (comment-preserving round-trip — those files are hand-maintained), and pushes a `deploy/<project>-<env>-<tag>` branch with a ready PR link (or the base branch directly with `push: direct`). Flux applies; this machine never touches the cluster |
+
+GitOps promotion config in `deploy.yaml`:
+
+```yaml
+environments:
+  staging:
+    mode: gitops
+    gitops:
+      repo: git@github.com:flaxandteal/myproj-fluxcd.git
+      file: namespaces/myproj-staging/helmrelease.yaml
+      tagPath: spec.values.image.tag   # string or list; dotted path
+      branch: main                     # base branch (default main)
+      push: branch                     # branch (PR flow, default) | direct
+  prod:
+    mode: gitops
+    gitops:
+      repo: git@github.com:flaxandteal/myproj-fluxcd.git
+      file: namespaces/myproj-prod/helmrelease.yaml
+      # push: branch — prod promotions always go through review
+```
+
+Then `arches-toolkit deploy staging --tag main-123` /
+`deploy prod --tag v1.4.0`. The tag is deliberately explicit — the local
+`PROJECT_TAG` is never promoted. Environments using Flux *image automation*
+for staging don't need this at all (merge to main is the deploy); the
+promotion flow is for tag-pinned namespaces, which is always prod and any
+staging that opts out of automation. Auth is the operator's ambient git
+credentials — the command writes commits, so who-can-deploy is exactly
+who-can-push, unchanged from doing it by hand.
 
 Direct mode defaults (zero config in a fresh project):
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import secrets as _secrets
 import shutil
 import subprocess
@@ -177,6 +178,158 @@ def _run(argv: list[str], *, dry_run: bool) -> None:
         raise typer.Exit(completed.returncode)
 
 
+# --------------------------------------------------------------------------- #
+# GitOps promotion (staging / prod)
+# --------------------------------------------------------------------------- #
+
+
+def _git(args: list[str], cwd: Path) -> str:
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if result.returncode != 0:
+        typer.echo(result.stderr.strip(), err=True)
+        raise typer.Exit(result.returncode)
+    return result.stdout.strip()
+
+
+def _set_yaml_path(documents: list, dotted_path: str, value: str) -> list[tuple[str, str]]:
+    """Set ``dotted_path`` to ``value`` in every document where it resolves.
+
+    Returns (old, new) per updated document. Documents that don't contain
+    the path are skipped — fluxcd files are often multi-doc (HelmRelease +
+    ImagePolicy + …).
+    """
+    *parents, leaf = dotted_path.split(".")
+    changes: list[tuple[str, str]] = []
+    for doc in documents:
+        node = doc
+        try:
+            for key in parents:
+                node = node[key]
+            old = node[leaf]
+        except (KeyError, TypeError):
+            continue
+        if str(old) != value:
+            node[leaf] = value
+        changes.append((str(old), value))
+    return changes
+
+
+def _pr_url(repo: str, branch: str) -> str | None:
+    """Best-effort GitHub compare URL for a pushed branch."""
+    m = re.match(r"(?:git@github\.com:|https://github\.com/)([^/]+/[^/.]+?)(?:\.git)?/?$", repo)
+    if m:
+        return f"https://github.com/{m.group(1)}/pull/new/{branch}"
+    return None
+
+
+def _gitops_deploy(
+    project_name: str,
+    environment: str,
+    cfg: dict,
+    tag: str,
+    *,
+    dry_run: bool,
+) -> None:
+    """Deploying to a GitOps environment IS committing to the fluxcd repo.
+
+    Clones the configured repo, bumps the image tag inside the HelmRelease
+    values (comment/format-preserving round-trip — these files are
+    hand-maintained), and pushes either a `deploy/...` branch for review
+    (default) or the base branch directly. Flux applies; this machine never
+    touches the cluster.
+    """
+    from ruamel.yaml import YAML  # local import: only the gitops path needs it
+
+    repo = cfg.get("repo")
+    file_rel = cfg.get("file")
+    if not repo or not file_rel:
+        raise typer.BadParameter(
+            f"environment {environment!r} is gitops but deploy.yaml lacks "
+            "gitops.repo / gitops.file — see docs/k8s-deployment.md "
+            "(single-command deploys) for the schema"
+        )
+    if not tag:
+        raise typer.BadParameter(
+            "gitops promotion needs an explicit --tag "
+            "(main-<bid> for staging, vX.Y.Z for prod) — the local PROJECT_TAG "
+            "is deliberately not used"
+        )
+    base_branch = cfg.get("branch", "main")
+    push_mode = cfg.get("push", "branch")
+    if push_mode not in ("branch", "direct"):
+        raise typer.BadParameter(f"gitops.push must be 'branch' or 'direct', got {push_mode!r}")
+    tag_paths = cfg.get("tagPath", "spec.values.image.tag")
+    if isinstance(tag_paths, str):
+        tag_paths = [tag_paths]
+    deploy_branch = f"deploy/{project_name}-{environment}-{tag}"
+
+    if dry_run:
+        typer.echo(f"  would clone {repo} ({base_branch})")
+        for p in tag_paths:
+            typer.echo(f"  would set {file_rel}:{p} = {tag}")
+        target = base_branch if push_mode == "direct" else deploy_branch
+        typer.echo(f"  would commit and push to {target!r}")
+        return
+
+    if shutil.which("git") is None:
+        raise typer.BadParameter("git not found on PATH")
+
+    _output.stage(f"Promoting {project_name} → {environment}: {tag} (via {repo})")
+    with tempfile.TemporaryDirectory(prefix="arches-gitops-") as tmp:
+        clone = Path(tmp) / "repo"
+        _git(["clone", "--depth", "1", "--branch", base_branch, repo, str(clone)], Path(tmp))
+        target = clone / file_rel
+        if not target.exists():
+            raise typer.BadParameter(f"{file_rel} not found in {repo}@{base_branch}")
+
+        yaml_rt = YAML()
+        yaml_rt.preserve_quotes = True
+        documents = list(yaml_rt.load_all(target.read_text(encoding="utf-8")))
+        all_changes: list[tuple[str, str, str]] = []
+        for dotted in tag_paths:
+            changes = _set_yaml_path(documents, dotted, tag)
+            if not changes:
+                raise typer.BadParameter(
+                    f"path {dotted!r} not found in {file_rel} — check gitops.tagPath"
+                )
+            all_changes += [(dotted, old, new) for old, new in changes]
+
+        if all(old == new for _, old, new in all_changes):
+            typer.echo(f"  {environment} is already at {tag} — nothing to do")
+            return
+        for dotted, old, new in all_changes:
+            if old != new:
+                typer.echo(f"  {file_rel}:{dotted}: {old} → {new}")
+
+        with target.open("w", encoding="utf-8") as fh:
+            yaml_rt.dump_all(documents, fh)
+
+        if push_mode == "branch":
+            _git(["checkout", "-b", deploy_branch], clone)
+        _git(["add", str(target.relative_to(clone))], clone)
+        _git(
+            [
+                "-c", "user.name=arches-toolkit",
+                "-c", "user.email=arches-toolkit@flaxandteal.co.uk",
+                "commit", "-m",
+                f"deploy({project_name}): {environment} → {tag}\n\nPromoted via `arches-toolkit deploy {environment} --tag {tag}`.",
+            ],
+            clone,
+        )
+        if push_mode == "direct":
+            _git(["push", "origin", base_branch], clone)
+            typer.echo(f"  ✓ pushed to {base_branch} — Flux will roll {environment} out")
+        else:
+            # deploy/* branches are generated; force-push replaces a stale
+            # attempt at the same tag rather than failing.
+            _git(["push", "--force", "origin", deploy_branch], clone)
+            typer.echo(f"  ✓ pushed branch {deploy_branch}")
+            url = _pr_url(repo, deploy_branch)
+            if url:
+                typer.echo(f"  open a PR: {url}")
+            typer.echo("  Flux rolls it out once merged.")
+
+
 def deploy(
     environment: str = typer.Argument("dev", help="Environment name (deploy.yaml key, or built-in dev/staging/prod)"),
     project_root: Path = typer.Option(Path("."), "--project-root", show_default=False, help="Project root (default: cwd)"),
@@ -212,12 +365,25 @@ def deploy(
         )
 
     if mode == "gitops":
-        typer.echo(f"Environment '{environment}' deploys via GitOps, not from this machine:")
-        typer.echo("  1. CI publishes the image (project-ci.yml → main-<bid>, project-release.yml → vX.Y.Z).")
-        typer.echo("  2. The fluxcd repo pins the tag/values for this namespace; Flux rolls it out.")
-        typer.echo("  Staging follows main-* automatically; prod is a reviewed tag bump there.")
-        typer.echo("  (A `deploy` gitops mode that writes that commit for you is designed, not yet implemented.)")
-        raise typer.Exit(2)
+        gitops_cfg = spec.get("gitops") or {}
+        if not gitops_cfg:
+            typer.echo(f"Environment '{environment}' deploys via GitOps, not from this machine:")
+            typer.echo("  1. CI publishes the image (project-ci.yml → main-<bid>, project-release.yml → vX.Y.Z).")
+            typer.echo("  2. The fluxcd repo pins the tag/values for this namespace; Flux rolls it out.")
+            typer.echo("  Staging follows main-* automatically; prod is a reviewed tag bump there.")
+            typer.echo("")
+            typer.echo("  To promote from here, configure the environment in deploy.yaml:")
+            typer.echo("    environments:")
+            typer.echo(f"      {environment}:")
+            typer.echo("        mode: gitops")
+            typer.echo("        gitops:")
+            typer.echo("          repo: git@github.com:flaxandteal/<project>-fluxcd.git")
+            typer.echo("          file: <path/to/helmrelease.yaml>")
+            typer.echo("          tagPath: spec.values.image.tag")
+            typer.echo(f"  then: arches-toolkit deploy {environment} --tag <tag>")
+            raise typer.Exit(2)
+        _gitops_deploy(project_name, environment, gitops_cfg, tag, dry_run=dry_run)
+        return
 
     if shutil.which("helm") is None and not dry_run:
         raise typer.BadParameter("helm not found on PATH (https://helm.sh/docs/intro/install/)")
