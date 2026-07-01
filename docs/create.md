@@ -85,7 +85,7 @@ Run it inside the web container when your stack is up:
 
 ```bash
 arches-toolkit dev
-arches-toolkit exec web python manage.py widget register -s widgets/my_widget.json
+docker compose exec web python manage.py widget register -s widgets/my_widget.json
 ```
 
 Register commands by kind: `widget`, `card_component`, `plugin`, `report`,
@@ -201,7 +201,7 @@ git clone https://github.com/archesproject/arches-her.git 2.0.x -b dev/2.0.x
 ```bash
 # 3. Normal sync-apps + rebuild
 arches-toolkit sync-apps
-arches-toolkit down && arches-toolkit dev --build
+docker compose down && arches-toolkit dev --build
 
 # 4. Add to INSTALLED_APPS in settings.py if needed
 ```

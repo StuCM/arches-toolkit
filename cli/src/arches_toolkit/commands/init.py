@@ -38,6 +38,10 @@ PROJECT_TAG=dev
 PROJECT_NAME={name}
 PROJECT_PACKAGE={package}
 
+# Explicit compose project name so raw `docker compose ps/logs/exec/restart/down`
+# target this stack from the project root (label-based; no -f files needed).
+COMPOSE_PROJECT_NAME={name}
+
 ARCHES_TOOLKIT_IMAGE={toolkit_image}
 ARCHES_TOOLKIT_TAG={toolkit_tag}
 
