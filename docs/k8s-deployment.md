@@ -337,7 +337,7 @@ previous image tag, no down-migration, seconds.
 | Repo | Work |
 |---|---|
 | **arches-toolkit** (this repo) | Image-contract gap list above; run-mode selector; `project-ci.yml` / `project-release.yml` reusable workflows with registry caching; this doc |
-| **helm-arches** | Chart 0.1.0 breaking rewrite per the audit doc's sequence, implementing this topology; the exported `toolkit-adaptation-wip.patch` is the starting point |
+| **helm-arches** | Chart 0.1.0 breaking rewrite per the audit doc's sequence, implementing this topology; the exported `toolkit-adaptation-wip.patch` is the starting point. *Interim (2026-07-01): the 0.1.0 chart is being developed in this repo under [helm/arches/](../helm/arches/) so it can iterate against the image contract in one place — promote it to `helm-arches` (or revisit that decision) before the first real release* |
 | **fluxcd repos** | Per-project: ImagePolicy regex for the new tag shape, values for the new chart — the audit's "NOT in this audit" list stays untouched |
 
 ## Ordered execution plan
@@ -348,9 +348,13 @@ previous image tag, no down-migration, seconds.
    prod-parity smoke test exists and is cheap to run.
 3. **`project-ci.yml`** with registry cache + `main-<bid>` / semver tags.
    Exit: quartz pilot builds `prod` + `nginx` in CI under 5 min warm.
+   *Scaffolded 2026-07-01 (`.github/workflows/project-ci.yml` +
+   `project-release.yml`, gha-cache variant); pilot validation pending.*
 4. **Chart 0.1.0 spike** in a test namespace against the pilot image —
    audit doc's CRITICAL items + init Job + security contexts from day one.
    Exit: pods Ready, upload survives restart, deploy under load is clean.
+   *Chart scaffolded 2026-07-01 under `helm/arches/` (lint + render
+   validated); cluster spike pending.*
 5. **Staging namespace** with Flux image automation end-to-end. Exit:
    merge to pilot main → staging updated with no human step.
 6. **Prod hardening**: S3 uploads option, HPA/PDB, backup + reindex

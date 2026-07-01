@@ -1,0 +1,27 @@
+{{ .Chart.Name }} {{ .Chart.Version }} deployed as {{ .Release.Name }}.
+
+Image: {{ include "arches.image" . }}
+{{- if .Values.static.enabled }}
+Static: {{ include "arches.staticImage" . }}
+{{- end }}
+
+The init Job ran as a pre-upgrade hook (migrate / createcachetable /
+es setup_indexes{{ if .Values.initJob.seedSystemSettings }} / system-settings seed{{ end }}).
+If the release failed, inspect it first:
+
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "arches.fullname" . }}-init
+
+{{- if .Values.ingress.enabled }}
+
+URL: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- else }}
+
+No ingress; port-forward to test:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "arches.fullname" . }}-web {{ .Values.service.web.port }}:{{ .Values.service.web.port }}
+{{- end }}
+
+Emergency manage commands (see arches-toolkit docs/k8s-deployment.md,
+"Operational access"):
+
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "arches.fullname" . }}-web -- python manage.py shell

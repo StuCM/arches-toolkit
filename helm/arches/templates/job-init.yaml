@@ -1,0 +1,104 @@
+{{- if .Values.initJob.enabled }}
+{{/*
+Per-release init Job (docs/k8s-deployment.md, "the init split"). Runs as a
+Helm pre-install/pre-upgrade hook so a failed migration blocks the rollout
+while the old pods keep serving. Every step is idempotent (migrate no-ops
+when current, createcachetable creates only if absent, es setup_indexes
+swallows index-exists 400s, the seed is graph-guarded), so re-running on
+every upgrade — including Flux image-automation bumps — is safe by
+construction. collectstatic is deliberately absent: assets bake at image
+build time.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "arches.fullname" . }}-init
+  labels:
+    {{- include "arches.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.initJob.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.initJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "arches.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "arches.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: init
+          image: {{ include "arches.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- include "arches.env" . | nindent 12 }}
+          envFrom:
+            {{- include "arches.envFrom" . | nindent 12 }}
+          {{/*
+          No uploads PVC here: as a pre-install hook this Job runs before
+          the chart's PVC exists, and no init step touches uploaded files.
+          frontend_configuration gets a scratch emptyDir in case
+          django.setup() writes there during management commands.
+          */}}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/arches/logs
+            - name: frontend-configuration
+              mountPath: {{ .Values.frontendConfiguration.dir }}
+          command:
+            - sh
+            - -euc
+            - |
+              echo "init: applying database migrations"
+              python manage.py migrate --noinput
+              echo "init: creating cache table"
+              python manage.py createcachetable
+              echo "init: setting up search indexes"
+              python manage.py es setup_indexes
+              {{- if .Values.initJob.seedSystemSettings }}
+              echo "init: seeding system settings (first boot only)"
+              python <<'PY'
+              import os, django
+              django.setup()
+              from django.conf import settings
+              from django.core.management import call_command
+              from arches.app.models.models import GraphModel
+              SYSTEM_SETTINGS_GRAPHID = "ff623370-fa12-11e6-b98b-6c4008b05c4c"
+              if GraphModel.objects.filter(graphid=SYSTEM_SETTINGS_GRAPHID).exists():
+                  print("init: system settings graph present; skipping seed")
+              else:
+                  base = os.path.join(settings.ROOT_DIR, "db", "system_settings")
+                  call_command("packages", operation="import_graphs",
+                               source=os.path.join(base, "Arches_System_Settings_Model.json"))
+                  call_command("graph", operation="publish")
+                  call_command("packages", operation="import_business_data",
+                               source=os.path.join(base, "Arches_System_Settings.json"),
+                               overwrite="overwrite")
+              PY
+              {{- end }}
+              echo "init: done"
+          resources:
+            {{- toYaml .Values.initJob.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        - name: frontend-configuration
+          emptyDir: {}
+{{- end }}

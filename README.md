@@ -214,8 +214,8 @@ If you find yourself running raw `docker compose` commands from a project, you'l
 | Webpack HMR port (internal 8080 vs mapped 9000) | Pending |
 | `HOST_UID` build arg for non-1000 host users | Pending |
 | Prod target: `COPY webpack-stats.json` from frontend stage | Pending |
-| Helm chart updates (Phase 2) | Designed — [docs/k8s-deployment.md](docs/k8s-deployment.md) |
-| Project-CI reusable workflow (Phase 2) | Deferred |
+| Helm chart updates (Phase 2) | Scaffolded — [helm/arches/](helm/arches/) per [docs/k8s-deployment.md](docs/k8s-deployment.md); cluster spike pending |
+| Project-CI reusable workflow (Phase 2) | Scaffolded — [project-ci.yml](.github/workflows/project-ci.yml) / [project-release.yml](.github/workflows/project-release.yml); pilot validation pending |
 | Upstream PRs for patches + the one bucket-A commit | Deferred |
 
 ## How this works under the hood

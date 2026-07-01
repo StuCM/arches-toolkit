@@ -1,0 +1,24 @@
+# Render-test values: exercises the default topology plus the optional
+# components. Used by `helm template -f` in CI and locally; not a profile
+# to deploy from.
+project:
+  package: myproject
+image:
+  repository: ghcr.io/flaxandteal/arches-myproject
+  tag: main-123
+postgres:
+  host: arches-postgresql
+  password: test-only
+elasticsearch:
+  host: arches-elasticsearch
+rabbitmq:
+  host: arches-rabbitmq
+api:
+  enabled: true
+cantaloupe:
+  enabled: true
+ingress:
+  enabled: true
+  host: myproject.example.org
+secretEnv:
+  DJANGO_SECRET_KEY: test-only-secret

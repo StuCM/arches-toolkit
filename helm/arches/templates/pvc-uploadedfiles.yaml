@@ -1,0 +1,21 @@
+{{- if and .Values.uploads.persistence.enabled (not .Values.uploads.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "arches.fullname" . }}-uploadedfiles
+  labels:
+    {{- include "arches.labels" . | nindent 4 }}
+  annotations:
+    # Survive `helm uninstall` — uploads are the one real state this chart
+    # owns (docs/k8s-deployment.md, storage).
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.uploads.persistence.accessModes | nindent 4 }}
+  {{- with .Values.uploads.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.uploads.persistence.size }}
+{{- end }}

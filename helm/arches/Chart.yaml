@@ -1,0 +1,38 @@
+apiVersion: v2
+name: arches
+description: >-
+  Arches project deployment implementing the arches-toolkit image contract
+  (docs/k8s-deployment.md). Breaking rewrite of helm-arches chart 0.0.19 —
+  see docs/helm-migration-audit.md for the delta.
+type: application
+# 0.1.0 signals the breaking change from the 0.0.x line (audit doc, step 5).
+version: 0.1.0
+# Informational: the arches line this chart cut was validated against.
+appVersion: "8.1"
+keywords:
+  - arches
+  - django
+maintainers:
+  - name: Flax & Teal
+    url: https://flaxandteal.co.uk
+
+# Backing services are consumed as endpoints (values.postgres.*, values.
+# elasticsearch.*, …) so any of managed services, operators (CNPG/ECK), or
+# in-cluster subcharts satisfy them. To bundle subcharts for a staging
+# namespace, uncomment and run `helm dependency update` (network required);
+# the connection defaults in values.yaml already point at the subchart
+# service names.
+#
+# dependencies:
+#   - name: postgresql
+#     version: "~16.x"
+#     repository: oci://registry-1.docker.io/bitnamicharts
+#     condition: postgresql.enabled
+#   - name: elasticsearch
+#     version: "~21.x"
+#     repository: oci://registry-1.docker.io/bitnamicharts
+#     condition: elasticsearch.bundled
+#   - name: rabbitmq
+#     version: "~15.x"
+#     repository: oci://registry-1.docker.io/bitnamicharts
+#     condition: rabbitmq.bundled

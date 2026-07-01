@@ -1,0 +1,261 @@
+# Default values implement the production profile from
+# docs/k8s-deployment.md (resource sizing, security posture, topology).
+# A staging/dev namespace overrides capacity values only — same shape.
+
+# -- Project identity (required). Mirrors the compose .env contract.
+project:
+  # Python package name, e.g. "myproject" (compose: PROJECT_PACKAGE).
+  package: ""
+  # Django wiring; empty derives "<package>.settings" / "<package>.wsgi:application" / "<package>".
+  djangoSettingsModule: ""
+  wsgiApp: ""
+  celeryApp: ""
+
+# -- Project image built from the toolkit Dockerfile `prod` target.
+image:
+  repository: ""
+  # Staging: Flux image automation tracks main-<bid>. Prod: pinned vX.Y.Z.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Static-server image from the `nginx` target (same repo, "-static"
+# suffix by convention; override if published elsewhere).
+staticImage:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# -- Security posture: on by default, per docs/k8s-deployment.md.
+# readOnlyRootFilesystem=false is the documented break-glass (one loud,
+# revertible values commit), not a tuning knob.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# -- Per-release init Job (Helm pre-install/pre-upgrade hook). Idempotent
+# by construction; failed migrations block the rollout while old pods keep
+# serving. collectstatic is deliberately absent — assets bake at build time.
+initJob:
+  enabled: true
+  # Import the System Settings graph/business data on a fresh DB
+  # (graph-guarded — no-op once present).
+  seedSystemSettings: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+# -- Fallback until images bake frontend_configuration (image-contract gap
+# 4): an initContainer regenerates it into a per-pod emptyDir. Disable once
+# the prod image carries it.
+frontendConfiguration:
+  generateAtBoot: true
+  dir: /var/arches/frontend_configuration
+
+web:
+  replicaCount: 2
+  gunicorn:
+    workers: 3
+    threads: 1
+    timeout: 120
+    # Appended verbatim to the gunicorn command line.
+    extraArgs: []
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1.2Gi
+    limits:
+      # No CPU limit by design: CPU is compressible; limits only add latency.
+      memory: 2Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 75
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- Off by default: most projects don't split the api surface. Flip on
+# per project; same image, port 8001.
+api:
+  enabled: false
+  replicaCount: 1
+  gunicorn:
+    workers: 3
+    threads: 1
+    timeout: 120
+    extraArgs: []
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1.2Gi
+    limits:
+      memory: 2Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+worker:
+  replicaCount: 1
+  celery:
+    logLevel: INFO
+    # Recycle workers before leaks accumulate; route known-heavy tasks
+    # (package imports, reindex) to one-off Jobs, not this deployment.
+    maxTasksPerChild: 100
+    # KB; 0 disables. ~700Mi keeps a leaky child under the pod limit.
+    maxMemoryPerChild: 700000
+    concurrency: 2
+  # Give in-flight tasks time to finish on rollout; keep celery soft time
+  # limits below this.
+  terminationGracePeriodSeconds: 300
+  resources:
+    requests:
+      cpu: 250m
+      memory: 768Mi
+    limits:
+      memory: 1.5Gi
+  livenessProbe:
+    enabled: true
+    periodSeconds: 60
+    timeoutSeconds: 30
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+static:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+cantaloupe:
+  enabled: false
+  image:
+    repository: uclalibrary/cantaloupe
+    tag: 5.0.3-0
+    pullPolicy: IfNotPresent
+  # Endpoint the app uses; empty derives the in-release service.
+  httpEndpoint: ""
+  javaHeap: 1g
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+# -- The one real state: uploaded files. RWX PVC baseline; object storage
+# (django-storages) is the prod target and makes this claim unnecessary.
+uploads:
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes: ["ReadWriteMany"]
+    size: 20Gi
+
+# -- Backing services, consumed as endpoints (slot model). Defaults match
+# the Bitnami subchart service names if you bundle them (Chart.yaml).
+postgres:
+  host: ""            # required, e.g. "arches-postgresql" or a managed host
+  port: 5432
+  user: postgres
+  database: arches
+  # Prefer existingSecret (SOPS pipeline). `password` renders into a chart
+  # secret — dev/staging convenience only.
+  password: ""
+  existingSecret: ""
+  existingSecretKey: password
+
+elasticsearch:
+  scheme: http
+  host: ""            # required, e.g. "arches-elasticsearch" or managed
+  port: 9200
+
+rabbitmq:
+  # Full AMQP URL wins if set (holds credentials — prefer existingSecret).
+  existingSecret: ""
+  existingSecretKey: rabbitmq-url
+  url: ""
+  # Or components; the chart assembles amqp://user:pass@host:port/vhost
+  # into its own secret.
+  host: ""
+  port: 5672
+  username: guest
+  password: guest
+  vhost: "/"
+
+# -- Probes. `path` should point at a cheap, auth-free URL; until the
+# health-endpoint image gap lands, "/" works but renders a full page.
+probes:
+  path: /
+  startup:
+    periodSeconds: 5
+    failureThreshold: 30   # 150s budget for Django app.ready()
+  readiness:
+    periodSeconds: 10
+    timeoutSeconds: 5
+  liveness:
+    periodSeconds: 30
+    timeoutSeconds: 5
+
+service:
+  web:
+    port: 8000
+  api:
+    port: 8001
+  static:
+    port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: 100m
+  host: ""
+  # Route /static/ straight to the static Deployment, bypassing gunicorn.
+  staticPath: /static/
+  tls: []
+
+# -- Plain env for the app containers (ConfigMap). DEBUG stays off in
+# clusters; local dev is where DEBUG lives.
+env:
+  DEBUG: "False"
+
+# -- Secret env (Secret <fullname>-env), e.g. DJANGO_SECRET_KEY. Supply via
+# SOPS-encrypted values in the fluxcd repo, or point at an existing secret.
+secretEnv: {}
+existingSecretEnv: ""

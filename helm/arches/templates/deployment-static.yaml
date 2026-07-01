@@ -1,0 +1,61 @@
+{{- if .Values.static.enabled }}
+{{/*
+Static assets from the project's `nginx` image target — collectstatic
+output baked at build time, so no shared PVC and no coupling to the web
+pods' lifecycle. Requires image-contract gaps 1-3 (docs/k8s-deployment.md)
+to be landed in the image it points at.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arches.fullname" . }}-static
+  labels:
+    {{- include "arches.labels" . | nindent 4 }}
+    app.kubernetes.io/component: static
+spec:
+  replicas: {{ .Values.static.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "arches.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: static
+  template:
+    metadata:
+      labels:
+        {{- include "arches.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: static
+    spec:
+      serviceAccountName: {{ include "arches.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nginx
+          image: {{ include "arches.staticImage" . }}
+          imagePullPolicy: {{ .Values.staticImage.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.static.port }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.static.resources | nindent 12 }}
+      {{- with .Values.static.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.static.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.static.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

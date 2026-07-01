@@ -1027,6 +1027,16 @@ missing from `prod`, `nginx`-target static/media paths, build-time
 endpoint, stdout logging. Sequence: close those gaps → run-mode selector
 → `project-ci.yml` → chart 0.1.0 in `helm-arches`.
 
+**Scaffolds landed 2026-07-01:** chart 0.1.0 under [helm/arches/](helm/arches/)
+(full topology: web/worker/api/static/cantaloupe, hook init Job, security
+contexts, sizing defaults; lint + render validated, cluster spike pending;
+developed here interim — promote to `helm-arches` before first release)
+and the reusable [project-ci.yml](.github/workflows/project-ci.yml) /
+[project-release.yml](.github/workflows/project-release.yml) workflows
+(gha build cache, `main-<bid>` + semver tags, Trivy/SBOM; pilot
+validation pending). [chart-lint.yml](.github/workflows/chart-lint.yml)
+keeps the chart rendering in CI.
+
 - Helm chart rework in the `helm-arches` repo (charts deliberately do NOT
   live in the toolkit — the prototype `chart/` seeded here was removed
   2026-06-11; the WIP toolkit-adaptation diff from 02359ff is exported to

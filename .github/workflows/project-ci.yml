@@ -1,0 +1,173 @@
+name: project-ci
+
+# Reusable CI for Arches projects (docs/k8s-deployment.md, promotion
+# pipeline). Builds the `prod` and `nginx` targets from the toolkit's
+# packaged Dockerfile — projects carry no Dockerfile, so this workflow
+# checks the toolkit out at a pinned ref to supply it (same package-only
+# invariant as the CLI).
+#
+# Consume from a project as:
+#
+#   jobs:
+#     ci:
+#       uses: flaxandteal/arches-toolkit/.github/workflows/project-ci.yml@v1
+#       permissions:
+#         contents: read
+#         packages: write
+#         security-events: write
+#       with:
+#         project_name: myproject
+#
+# Tag scheme: pushes to the default branch produce `main-<run_number>`
+# (Flux ImagePolicy numeric-sorts these for staging auto-rollout); other
+# events build without pushing. Releases are project-release.yml.
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: "Project package name (PROJECT_NAME build arg)"
+        required: true
+        type: string
+      project_package:
+        description: "Python package if it differs from project_name"
+        required: false
+        default: ""
+        type: string
+      image_name:
+        description: "Image repository; defaults to ghcr.io/<owner>/<repo>"
+        required: false
+        default: ""
+        type: string
+      toolkit_ref:
+        description: "arches-toolkit ref supplying the Dockerfile — pin to the same tag as the `uses:` line"
+        required: false
+        default: "main"
+        type: string
+      arches_toolkit_image:
+        description: "Base image (ARCHES_TOOLKIT_IMAGE build arg)"
+        required: false
+        default: "ghcr.io/flaxandteal/arches-toolkit"
+        type: string
+      arches_toolkit_tag:
+        description: "Base image tag — pin `<sha>-arches-<ref>` for prod-bound projects"
+        required: false
+        default: "latest-arches-stable-8.1.2"
+        type: string
+      push:
+        description: "Push images (default: only on default-branch pushes)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Checkout toolkit (packaged Dockerfile)
+        uses: actions/checkout@v4
+        with:
+          repository: flaxandteal/arches-toolkit
+          ref: ${{ inputs.toolkit_ref }}
+          path: .arches-toolkit
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image refs
+        id: refs
+        run: |
+          set -euo pipefail
+          image='${{ inputs.image_name }}'
+          if [ -z "$image" ]; then
+            image="${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          fi
+          push='${{ inputs.push }}'
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
+            push=true
+          fi
+          tag="main-${{ github.run_number }}"
+          {
+            echo "image=${image}"
+            echo "push=${push}"
+            echo "app_tag=${image}:${tag}"
+            echo "static_tag=${image}-static:${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: steps.refs.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # cache-from/to is load-bearing: BuildKit's RUN cache mounts do NOT
+      # persist on ephemeral GitHub runners — without the gha cache every
+      # CI build is cold (docs/k8s-deployment.md, speed budget).
+      - name: Build prod image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .arches-toolkit/cli/src/arches_toolkit/_data/Dockerfile
+          target: prod
+          push: ${{ steps.refs.outputs.push == 'true' }}
+          load: ${{ steps.refs.outputs.push != 'true' }}
+          tags: ${{ steps.refs.outputs.app_tag }}
+          build-args: |
+            ARCHES_TOOLKIT_IMAGE=${{ inputs.arches_toolkit_image }}
+            ARCHES_TOOLKIT_TAG=${{ inputs.arches_toolkit_tag }}
+            PROJECT_NAME=${{ inputs.project_name }}
+            PROJECT_PACKAGE=${{ inputs.project_package || inputs.project_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build static (nginx) image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .arches-toolkit/cli/src/arches_toolkit/_data/Dockerfile
+          target: nginx
+          push: ${{ steps.refs.outputs.push == 'true' }}
+          tags: ${{ steps.refs.outputs.static_tag }}
+          build-args: |
+            ARCHES_TOOLKIT_IMAGE=${{ inputs.arches_toolkit_image }}
+            ARCHES_TOOLKIT_TAG=${{ inputs.arches_toolkit_tag }}
+            PROJECT_NAME=${{ inputs.project_name }}
+            PROJECT_PACKAGE=${{ inputs.project_package || inputs.project_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.refs.outputs.app_tag }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-project
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.refs.outputs.app_tag }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+
+      # cosign signing: scaffolded, pending action SHA pinning — same
+      # status as base-image.yml.

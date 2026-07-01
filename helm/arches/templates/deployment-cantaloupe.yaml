@@ -1,0 +1,63 @@
+{{- if .Values.cantaloupe.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arches.fullname" . }}-cantaloupe
+  labels:
+    {{- include "arches.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cantaloupe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "arches.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cantaloupe
+  template:
+    metadata:
+      labels:
+        {{- include "arches.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cantaloupe
+    spec:
+      serviceAccountName: {{ include "arches.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cantaloupe
+          image: "{{ .Values.cantaloupe.image.repository }}:{{ .Values.cantaloupe.image.tag }}"
+          imagePullPolicy: {{ .Values.cantaloupe.image.pullPolicy }}
+          env:
+            # JVM: request≈limit rules apply; heap explicit so the pod
+            # memory is deterministic (docs/k8s-deployment.md, sizing).
+            - name: JAVA_HEAP_SIZE
+              value: {{ .Values.cantaloupe.javaHeap | quote }}
+            - name: CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX
+              value: /imageroot/
+          ports:
+            - name: http
+              containerPort: 8182
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - name: uploadedfiles
+              mountPath: /imageroot
+              readOnly: true
+          resources:
+            {{- toYaml .Values.cantaloupe.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.uploads.persistence.enabled }}
+        - name: uploadedfiles
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-uploadedfiles" (include "arches.fullname" .)) .Values.uploads.persistence.existingClaim }}
+        {{- else }}
+        - name: uploadedfiles
+          emptyDir: {}
+        {{- end }}
+{{- end }}
